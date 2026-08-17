@@ -12,7 +12,7 @@
 
 <p align="center">
   <a href="../../LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-171513.svg" /></a>
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon-171513.svg" />
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%26%20Intel-171513.svg" />
   <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-171513.svg" />
 </p>
 
@@ -32,11 +32,12 @@
 | 平台 | 安装包 | 下载 |
 | --- | --- | --- |
 | macOS Apple Silicon | DMG 安装包（arm64） | [DeepSeek.Harness-arm64.dmg](https://github.com/salathleizhang/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness-arm64.dmg) |
+| macOS Intel | DMG 安装包（x64） | [DeepSeek.Harness-x64.dmg](https://github.com/salathleizhang/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness-x64.dmg) |
 | Windows x64 | NSIS 安装包 | [DeepSeek.Harness-x64.exe](https://github.com/salathleizhang/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness-x64.exe) |
 
 完整版本历史见 [Releases](https://github.com/salathleizhang/deepseek-harness-desktop/releases) 页。
 
-macOS Intel（x64）要等 harness 的原生依赖完成 x64 构建后再补上；不支持 Windows ARM64。
+不支持 Windows ARM64。
 
 ## 为什么存在这个项目
 
@@ -112,11 +113,10 @@ electron-builder 通过 `extraResources` 把两者复制进 `resources/`。启�
 
 ## 发布
 
-一个由 tag 触发的 workflow（[desktop-release.yml](../../.github/workflows/desktop-release.yml)）负责构建并发布安装包。推送 `dsh-v*` tag——桌面应用与 dsh 族共享版本与 tag——就会构建 macOS arm64 的 `.dmg` 与 Windows x64 的 NSIS 安装包，并把两者作为附件挂到标题为 `DeepSeek Harness Desktop <version>` 的 GitHub Release 上。以 `publish: false` 手动触发可只排练构建而不创建 Release。
+一个由 tag 触发的 workflow（[desktop-release.yml](../../.github/workflows/desktop-release.yml)）负责构建并发布安装包。推送 `dsh-v*` tag——桌面应用与 dsh 族共享版本与 tag——就会构建 macOS arm64 与 x64 的 `.dmg` 安装包以及 Windows x64 的 NSIS 安装包，并作为附件挂到标题为 `DeepSeek Harness Desktop <version>` 的 GitHub Release 上。以 `publish: false` 手动触发可只排练构建而不创建 Release。
 
-- macOS：设置证书机密时使用 Developer ID Application 身份签名并已公证；证书缺失时改为构建未签名安装包，因此没有证书也能产出发布包。
+- macOS（arm64 与 x64）：设置证书机密时使用 Developer ID Application 身份签名并已公证；证书缺失时改为构建未签名安装包，因此没有证书也能产出发布包。
 - Windows：在加入 Authenticode 证书之前仍为未签名。
-- macOS x64：要等 harness 的原生依赖完成 x64 构建后再补上。
 - 自动更新：`electron-builder.yml` 的 `publish` 配置会在 `--publish never` 下写出 `latest-mac.yml` / `latest.yml`，workflow 随安装包一并上传，供应用内 `electron-updater` 更新源使用。
 
 ## 环境变量

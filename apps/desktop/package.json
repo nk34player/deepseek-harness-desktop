@@ -18,6 +18,8 @@
     "dist:mac:unsigned": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --publish never --config.mac.identity=null --config.mac.notarize=false",
     "dist:mac:dev": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --publish never --config.mac.identity=null --config.mac.notarize=false",
     "dist:mac:dev:x64": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --x64 --publish never --config.mac.identity=null --config.mac.notarize=false",
+    "dist:mac:x64": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --x64 --publish never",
+    "dist:mac:x64:unsigned": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --x64 --publish never --config.mac.identity=null --config.mac.notarize=false",
     "dist:mac:universal": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --universal --publish never --config.mac.identity=null --config.mac.notarize=false",
     "dist:win": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --win --publish never"
   },

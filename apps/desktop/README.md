@@ -12,7 +12,7 @@ English | [中文](README.zh.md)
 
 <p align="center">
   <a href="../../LICENSE"><img alt="License: MIT" src="https://img.shields.io/badge/License-MIT-171513.svg" /></a>
-  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon-171513.svg" />
+  <img alt="macOS" src="https://img.shields.io/badge/macOS-Apple%20Silicon%20%26%20Intel-171513.svg" />
   <img alt="Windows" src="https://img.shields.io/badge/Windows-x64-171513.svg" />
 </p>
 
@@ -32,11 +32,12 @@ Installers use fixed filenames, so these one-click links always fetch the latest
 | Platform | Package | Download |
 | --- | --- | --- |
 | macOS Apple Silicon | DMG installer (arm64) | [DeepSeek.Harness-arm64.dmg](https://github.com/salathleizhang/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness-arm64.dmg) |
+| macOS Intel | DMG installer (x64) | [DeepSeek.Harness-x64.dmg](https://github.com/salathleizhang/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness-x64.dmg) |
 | Windows x64 | NSIS installer | [DeepSeek.Harness-x64.exe](https://github.com/salathleizhang/deepseek-harness-desktop/releases/latest/download/DeepSeek.Harness-x64.exe) |
 
 The [Releases](https://github.com/salathleizhang/deepseek-harness-desktop/releases) page keeps the full version history.
 
-macOS Intel (x64) is deferred until the harness's native dependencies are built for x64; Windows ARM64 is not supported.
+Windows ARM64 is not supported.
 
 ## Why this project exists
 
@@ -112,11 +113,10 @@ electron-builder copies both into `resources/` via `extraResources`. At launch t
 
 ## Release
 
-A tag-triggered workflow ([desktop-release.yml](../../.github/workflows/desktop-release.yml)) builds and publishes the installers. Pushing a `dsh-v*` tag — the desktop app shares the dsh family's version and tag — builds a macOS arm64 `.dmg` and a Windows x64 NSIS installer and attaches both to a GitHub Release titled `DeepSeek Harness Desktop <version>`. A manual dispatch with `publish: false` rehearses the build without creating a release.
+A tag-triggered workflow ([desktop-release.yml](../../.github/workflows/desktop-release.yml)) builds and publishes the installers. Pushing a `dsh-v*` tag — the desktop app shares the dsh family's version and tag — builds macOS arm64 and x64 `.dmg` installers and a Windows x64 NSIS installer and attaches them to a GitHub Release titled `DeepSeek Harness Desktop <version>`. A manual dispatch with `publish: false` rehearses the build without creating a release.
 
-- macOS: signed with a Developer ID Application identity and notarized when the certificate secrets are set; built unsigned when they are absent, so a release still packages without the certificate.
+- macOS (arm64 and x64): signed with a Developer ID Application identity and notarized when the certificate secrets are set; built unsigned when they are absent, so a release still packages without the certificate.
 - Windows: unsigned until an Authenticode certificate is added.
-- macOS x64: deferred until the harness's native dependencies are built for x64.
 - Auto-update: the `publish` config in `electron-builder.yml` writes `latest-mac.yml` / `latest.yml` (under `--publish never`), which the workflow uploads alongside the installers to serve the in-app `electron-updater` feed.
 
 ## Environment

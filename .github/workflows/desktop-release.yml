@@ -1,15 +1,17 @@
-# Build and publish the Electron desktop app installers: a macOS arm64 .dmg and
-# a Windows x64 NSIS installer. A tag push to
+# Build and publish the Electron desktop app installers: macOS arm64 and
+# macOS x64 .dmg installers plus a Windows x64 NSIS installer. A tag push to
 # dsh-v* (the desktop app shares the dsh family's version and tag) creates a
 # GitHub Release with the installers; a manual dispatch can rehearse the build
 # with publish=false or publish from such a tag.
 #
-# The macOS job signs with the Developer ID Application identity and notarizes
+# The macOS jobs sign with the Developer ID Application identity and notarize
 # via notarytool (credentials come from repository secrets). When the
-# certificate secrets are absent the job builds unsigned instead of failing,
+# certificate secrets are absent each job builds unsigned instead of failing,
 # so a release can still be produced from a machine without the certificate.
 # The Windows job stays unsigned until an Authenticode certificate is added.
-# The installers use
+# The macOS x64 job cross-builds the x64 slice on the arm64 runner (and stages
+# the darwin-x64 Node runtime + harness closure via DSH_DESKTOP_ARCH=x64), so
+# Intel Macs get a working installer. The installers use
 # fixed, version-free filenames (set in electron-builder.yml), so the
 # releases/latest/download/<name> links in the READMEs always resolve to the
 # newest release. electron-builder's `publish` config (with `--publish never`)
@@ -131,6 +133,85 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  build-macos-x64:
+    name: macOS (x64 dmg)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      - name: Import signing certificate
+        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
+        env:
+          MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
+          MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
+        run: |
+          echo "$MAC_CERT_P12" | base64 --decode > "$RUNNER_TEMP/certificate.p12"
+          security create-keychain -p "$MAC_CERT_PASSWORD" build.keychain
+          security default-keychain -s build.keychain
+          security unlock-keychain -p "$MAC_CERT_PASSWORD" build.keychain
+          security import "$RUNNER_TEMP/certificate.p12" -k build.keychain -P "$MAC_CERT_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$MAC_CERT_PASSWORD" build.keychain
+
+      - name: Prepare notarization credentials
+        env:
+          APPLE_API_KEY_B64: ${{ secrets.APPLE_API_KEY }}
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          if [ -n "$APPLE_API_KEY_B64" ] && [ -n "$APPLE_API_KEY_ID" ] && [ -n "$APPLE_API_ISSUER" ]; then
+            echo "$APPLE_API_KEY_B64" | base64 --decode > "$RUNNER_TEMP/AuthKey.p8"
+            echo "APPLE_API_KEY=$RUNNER_TEMP/AuthKey.p8" >> "$GITHUB_ENV"
+            echo "APPLE_API_KEY_ID=$APPLE_API_KEY_ID" >> "$GITHUB_ENV"
+            echo "APPLE_API_ISSUER=$APPLE_API_ISSUER" >> "$GITHUB_ENV"
+          else
+            echo "Notarization credentials not set; the macOS installer will be signed but not notarized."
+          fi
+
+      # dist:mac:x64 stages the darwin-x64 Node runtime and harness closure
+      # (DSH_DESKTOP_ARCH=x64) and cross-builds the x64 dmg on the arm64 runner,
+      # signing with the pinned Developer ID identity and notarizing via
+      # notarytool; the unsigned variant runs when the certificate is absent.
+      - name: Package macOS (x64)
+        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
+        env:
+          DSH_DESKTOP_ARCH: x64
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:x64
+
+      - name: Package macOS (x64, unsigned)
+        if: ${{ secrets.MAC_CERT_P12 == '' || secrets.MAC_CERT_PASSWORD == '' }}
+        env:
+          DSH_DESKTOP_ARCH: x64
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:x64:unsigned
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-macos-x64
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 7
+
   build-windows:
     name: Windows (x64 NSIS)
     runs-on: windows-2025
@@ -174,7 +255,7 @@ jobs:
 
   release:
     name: Create GitHub Release
-    needs: [build-macos, build-windows]
+    needs: [build-macos, build-macos-x64, build-windows]
     if: github.event_name == 'push' || inputs.publish
     runs-on: ubuntu-latest
     permissions:
