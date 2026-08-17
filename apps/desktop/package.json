@@ -15,6 +15,7 @@
     "prepare:runtime": "node scripts/prepare-runtime.mjs",
     "dist": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --publish never",
     "dist:mac": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --publish never",
+    "dist:mac:universal": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --mac --universal --publish never --config.mac.identity=null --config.mac.notarize=false",
     "dist:win": "tsc -p . && node scripts/prepare-runtime.mjs && electron-builder --win --publish never"
   },
   "dependencies": {

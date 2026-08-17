@@ -51,12 +51,14 @@ jobs:
       # Dev builds have no signing certificate, so null the release identity
       # pinned in electron-builder.yml and skip notarization; the result is
       # an unsigned dmg for testing only. DSH_DESKTOP_UNIVERSAL=1 stages BOTH
-      # darwin-{arm64,x64} runtimes and native deps, and --universal merges
-      # them into one fat installer that runs on Intel and Apple Silicon.
+      # darwin-{arm64,x64} runtimes and native deps, and dist:mac:universal
+      # merges them into one fat installer that runs on Intel and Apple
+      # Silicon. The flags live in that script (pnpm run's `--` passthrough
+      # inserts a literal `--` that electron-builder treats as end-of-options).
       - name: Package macOS (universal, unsigned)
         env:
           DSH_DESKTOP_UNIVERSAL: '1'
-        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac -- --universal --config.mac.identity=null --config.mac.notarize=false
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:universal
 
       # Gate the universal merge: both slices must be present before upload.
       - name: Verify universal binary
