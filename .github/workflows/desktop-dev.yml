@@ -1,0 +1,115 @@
+# Build the desktop installers from the dev branch and upload them as
+# artifacts — a dev build, not a release. Every push to dev rebuilds the
+# macOS arm64 .dmg and the Windows x64 NSIS installer so the latest dev state
+# is downloadable from the Actions run. The dev build is unsigned (no
+# certificate secrets) and never creates a GitHub Release; that path stays
+# with desktop-release.yml on dsh-v* tags.
+name: Desktop (dev build)
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  build-macos:
+    name: macOS (arm64 dmg, unsigned)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      # Dev builds have no signing certificate, so null the release identity
+      # pinned in electron-builder.yml and skip notarization; the result is
+      # an unsigned dmg for testing only. Mirrors dist:mac's steps (tsc,
+      # prepare-runtime, electron-builder) with those overrides injected.
+      - name: Package macOS (unsigned)
+        env:
+          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
+        run: |
+          pnpm --filter @deepseek-ai/dsh-desktop run build
+          pnpm --filter @deepseek-ai/dsh-desktop exec node scripts/prepare-runtime.mjs
+          pnpm --filter @deepseek-ai/dsh-desktop exec electron-builder --mac --publish never --config.mac.identity=null --config.mac.notarize=false
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dev-macos
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 7
+
+  build-windows:
+    name: Windows (x64 NSIS, unsigned)
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      # Mirrors dist:win's steps (tsc, prepare-runtime, electron-builder).
+      - name: Package Windows
+        run: |
+          pnpm --filter @deepseek-ai/dsh-desktop run build
+          pnpm --filter @deepseek-ai/dsh-desktop exec node scripts/prepare-runtime.mjs
+          pnpm --filter @deepseek-ai/dsh-desktop exec electron-builder --win --publish never
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dev-windows
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 7
