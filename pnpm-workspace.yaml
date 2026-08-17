@@ -70,5 +70,24 @@ minimumReleaseAgeExclude:
   - node-addon-require-builtin-win32-x64-msvc@0.1.4
   - node-addon-require-builtin@0.1.4
 
+# The desktop installers ship native optional deps (sharp @img/sharp-*,
+# koffi @koromix/koffi-*, node-pty prebuilds) for every platform they target,
+# regardless of the build host. pnpm reads supportedArchitectures only from
+# pnpm-workspace.yaml — neither a .npmrc block nor --config.supportedArchitectures.*
+# CLI flags reach pnpm deploy's optional-dep resolution — so this is the single
+# place that fixes both the repo-wide install and every `pnpm deploy` in
+# prepare-runtime.mjs. `current` keeps each host's own natives, darwin/win32
+# cover the shipped installers, and the CPU list spans arm64+x64 (including the
+# macOS x64 cross-build on the arm64 runner).
+supportedArchitectures:
+  os:
+    - current
+    - darwin
+    - win32
+  cpu:
+    - current
+    - x64
+    - arm64
+
 patchedDependencies:
   node-pty@1.1.0: patches/node-pty@1.1.0.patch

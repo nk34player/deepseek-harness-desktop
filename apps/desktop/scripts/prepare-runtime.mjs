@@ -87,80 +87,22 @@ function extractNode(target, archive) {
 }
 
 /**
- * Deploy the harness closure for one target into `dir`, pinning pnpm's
- * optional-dependency platform resolution to that exact target. pnpm's
- * `supportedArchitectures` selects only ONE (os, cpu) triplet per install (the
- * first non-"current" entry wins; the rest are ignored), so a single deploy
- * cannot carry both `darwin-arm64` and `darwin-x64` natives regardless of the
- * `.npmrc`. Pinning per target guarantees a cross-build (e.g. x64 staged on an
- * arm64 runner) still ships the native modules (`@img/sharp-*`, `@koromix/koffi-*`,
- * `node-pty` prebuilds) it needs at runtime.
+ * Deploy the harness closure into `vendor/harness`. The optional natives the
+ * shipped installers load (`@img/sharp-*`, `@koromix/koffi-*`, `node-pty`
+ * prebuilds) are selected by `supportedArchitectures` in pnpm-workspace.yaml —
+ * the only place pnpm reads it for `pnpm deploy` (CLI `--config.supportedArchitectures.*`
+ * flags and a .npmrc block are both ignored) — so one deploy carries every
+ * staged target's natives and `pruneHarness` keeps the ones they load.
  */
-function deployHarness(dir, target) {
+function deployHarness() {
   run('pnpm', [
     '--filter', '@deepseek-ai/dsh', 'deploy',
     '--legacy', '--prod',
     '--config.node-linker=hoisted',
     '--config.auto-install-peers=false',
     '--config.link-workspace-packages=true',
-    `--config.supportedArchitectures.os=${target.platform}`,
-    `--config.supportedArchitectures.cpu=${target.arch}`,
-    dir,
+    join(VENDOR_DIR, 'harness'),
   ])
-}
-
-/**
- * Union two hoisted `node_modules` trees into one self-contained closure.
- * Native optional deps are the only per-arch divergence: `@img/sharp-*` and
- * `@koromix/koffi-*` names differ by variant and `node-pty/prebuilds` keeps one
- * subdirectory per platform-arch, so copying entries absent from the destination
- * never clobbers shared (identical) JS payloads. Used to merge per-target deploys
- * for a multi-arch (universal) installer.
- */
-function mergeNodeModules(fromModules, toModules) {
-  const merge = (from, to) => {
-    if (!existsSync(from)) return
-    mkdirSync(to, { recursive: true })
-    for (const entry of readdirSync(from, { withFileTypes: true })) {
-      const src = join(from, entry.name)
-      const dst = join(to, entry.name)
-      if (entry.isDirectory()) {
-        if (existsSync(dst) && lstatSync(dst).isDirectory()) {
-          merge(src, dst)
-        } else {
-          rmSync(dst, { recursive: true, force: true })
-          cpSync(src, dst, { recursive: true, dereference: true })
-        }
-      } else if (!existsSync(dst)) {
-        cpSync(src, dst, { dereference: true })
-      }
-    }
-  }
-  merge(fromModules, toModules)
-}
-
-/**
- * Deploy the closure once per staged target, pinned to that target's arch, and
- * merge their `node_modules` into the final `vendor/harness`. A single-arch
- * build produces one deploy with a single `harness` directory; a multi-arch
- * (universal) build merges each target's closure so every arch's natives ship.
- */
-function deployHarnessForTargets(targets) {
-  const harnessDir = join(VENDOR_DIR, 'harness')
-  rmSync(harnessDir, { recursive: true, force: true })
-  targets.forEach((target, index) => {
-    const dir = index === 0
-      ? harnessDir
-      : join(VENDOR_DIR, `harness-${target.platform}-${target.arch}`)
-    deployHarness(dir, target)
-  })
-  if (targets.length > 1) {
-    for (const target of targets.slice(1)) {
-      const staging = join(VENDOR_DIR, `harness-${target.platform}-${target.arch}`)
-      mergeNodeModules(join(staging, 'node_modules'), join(harnessDir, 'node_modules'))
-      rmSync(staging, { recursive: true, force: true })
-    }
-  }
 }
 
 /**
@@ -211,10 +153,9 @@ function findNested(root, scope, name) {
  *   A universal macOS build keeps both darwin-{arm64,x64}; a single-arch build
  *   keeps just its one entry.
  * - koffi resolves its native backend from `@koromix/koffi-<platform>-<arch>`
- *   optional deps; each target's deploy is pinned to that target's platform and
- *   arch (see {@link deployHarness}), so prune the variants no staged target
- *   loads (e.g. win32/linux on macOS, or the other darwin arch on a
- *   single-arch build).
+ *   optional deps; the single deploy (see {@link deployHarness}) carries every
+ *   configured platform's variant, so prune the ones no staged target loads
+ *   (e.g. win32 on macOS, or the other darwin arch on a single-arch build).
  * - `@mistralai/mistralai` publishes its whole source tree; only the compiled
  *   `esm/` entry its `default` export points at is imported at runtime.
  * @param keep - the `${platform}-${arch}` prebuild directory names to keep.
@@ -328,7 +269,7 @@ for (const target of TARGETS) {
 }
 
 try {
-  deployHarnessForTargets(TARGETS)
+  deployHarness()
   restoreLegacyHoists(join(VENDOR_DIR, 'harness'))
   materializeStagedLinks(join(VENDOR_DIR, 'harness'))
   pruneHarness(join(VENDOR_DIR, 'harness'), TARGETS.map((target) => `${target.platform}-${target.arch}`))
