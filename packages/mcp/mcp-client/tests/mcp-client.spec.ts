@@ -721,6 +721,26 @@ describe('createTransport', () => {
     expect(transport).toHaveProperty('close')
   })
 
+  it('accepts a cwd override that takes precedence over the configured cwd', () => {
+    const config: Config = {
+      transport: 'stdio',
+      serverName: 'srv',
+      command: 'echo',
+      args: [],
+      env: {},
+      cwd: '/configured',
+      toolCallTimeoutMs: 60_000,
+      failOnStartupError: false,
+    }
+    // StdioClientTransport keeps its options private; the observable contract is
+    // that an override still produces a working transport (the re-point tests in
+    // reconnect.spec.ts assert the exact cwd through the mocked SDK).
+    const transport = createTransport(config, '/workspace')
+    expect(transport).toBeDefined()
+    expect(transport).toHaveProperty('start')
+    expect(transport).toHaveProperty('close')
+  })
+
   it('creates StreamableHTTPClientTransport for http config without headers', () => {
     const config: Config = {
       transport: 'streamable-http',

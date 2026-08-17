@@ -62,8 +62,16 @@ export interface StdioConfig {
   args: string[]
   /** Extra env vars merged on top of scrubbed ambient env. */
   env: Record<string, string>
-  /** Working directory for the child process. */
+  /** Working directory for the child process; empty uses the host cwd. */
   cwd: string
+  /**
+   * Spawn the child in the harness's currently-open workspace (the cwd of the
+   * most recently opened session) instead of `cwd`. When the workspace changes,
+   * the server is re-spawned with the new cwd. Use for servers that derive a
+   * search root from their process cwd (e.g. a file indexer); avoid for
+   * long-lived GUI bridges, which restart on every workspace change.
+   */
+  useSessionWorkspace?: boolean
   /** Per-tool-call timeout in milliseconds. */
   toolCallTimeoutMs: number
   /** Fail plugin activation when the initial connection or tool synchronization fails. */
@@ -112,6 +120,7 @@ export const Config = z.union([
     args: z.array(String).default([]),
     env: z.dict(String).default({}),
     cwd: z.string().default(''),
+    useSessionWorkspace: z.boolean().default(false),
     toolCallTimeoutMs: z.number().default(DEFAULT_TOOL_CALL_TIMEOUT_MS),
     failOnStartupError: z.boolean().default(false),
     reconnect: Reconnect,
