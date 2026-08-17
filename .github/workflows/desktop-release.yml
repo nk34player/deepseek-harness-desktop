@@ -48,6 +48,11 @@ jobs:
   build-macos:
     name: macOS (arm64 dmg)
     runs-on: macos-14
+    # GitHub Actions forbids the `secrets` context inside `if:` conditions, so
+    # the certificate-presence boolean is computed once as a job env var and
+    # the steps branch on it.
+    env:
+      HAS_MAC_CERT: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -76,7 +81,7 @@ jobs:
       # certificate secret is absent the step is skipped and the packaging step
       # below builds unsigned instead.
       - name: Import signing certificate
-        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
+        if: env.HAS_MAC_CERT == 'true'
         env:
           MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
           MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
@@ -115,11 +120,11 @@ jobs:
       # skipped and dist:mac:unsigned runs instead, nulling the identity and
       # disabling notarization so the release packages without the certificate.
       - name: Package macOS
-        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
+        if: env.HAS_MAC_CERT == 'true'
         run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac
 
       - name: Package macOS (unsigned)
-        if: ${{ secrets.MAC_CERT_P12 == '' || secrets.MAC_CERT_PASSWORD == '' }}
+        if: env.HAS_MAC_CERT == 'false'
         run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:unsigned
 
       - uses: actions/upload-artifact@v4
@@ -136,6 +141,8 @@ jobs:
   build-macos-x64:
     name: macOS (x64 dmg)
     runs-on: macos-14
+    env:
+      HAS_MAC_CERT: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
     steps:
       - uses: actions/checkout@v6
         with:
@@ -159,7 +166,7 @@ jobs:
         run: pnpm run build
 
       - name: Import signing certificate
-        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
+        if: env.HAS_MAC_CERT == 'true'
         env:
           MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
           MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
@@ -191,13 +198,13 @@ jobs:
       # signing with the pinned Developer ID identity and notarizing via
       # notarytool; the unsigned variant runs when the certificate is absent.
       - name: Package macOS (x64)
-        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
+        if: env.HAS_MAC_CERT == 'true'
         env:
           DSH_DESKTOP_ARCH: x64
         run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:x64
 
       - name: Package macOS (x64, unsigned)
-        if: ${{ secrets.MAC_CERT_P12 == '' || secrets.MAC_CERT_PASSWORD == '' }}
+        if: env.HAS_MAC_CERT == 'false'
         env:
           DSH_DESKTOP_ARCH: x64
         run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:x64:unsigned
