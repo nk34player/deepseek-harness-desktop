@@ -1,0 +1,147 @@
+# Build the desktop installers from the dev branch and upload them as
+# artifacts — a dev build, not a release. Every push to dev rebuilds three
+# unsigned installers from the latest dev state: macOS arm64, macOS x64, and
+# Windows x64. The dev build never creates a GitHub Release; that path stays
+# with desktop-release.yml on dsh-v* tags.
+#
+# Both macOS jobs run on the arm64 `macos-14` runner. The arm64 job stages the
+# host-arch Node runtime; the x64 job sets DSH_DESKTOP_ARCH=x64 so
+# prepare-runtime.mjs stages the darwin-x64 Node runtime and prunes the
+# arm64-native payload, and dist:mac:dev:x64 passes --x64 to electron-builder,
+# which cross-builds the x64 slice on Apple Silicon.
+name: Desktop (dev build)
+
+on:
+  push:
+    branches: [dev]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PRIMARY_NODE_VERSION: '24'
+  DSH_TELEMETRY_DISABLED: '1'
+
+jobs:
+  build-macos:
+    name: macOS (${{ matrix.arch }} dmg, unsigned)
+    runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # arm64 is the host arch; dist:mac:dev builds it natively.
+          - arch: arm64
+            script: dist:mac:dev
+            arch_env: arm64
+            artifact: desktop-dev-macos-arm64
+            lipo_arch: arm64
+          # x64 is cross-built on the arm64 runner: stage the x64 Node runtime
+          # (DSH_DESKTOP_ARCH) and ask electron-builder for an x64 slice.
+          - arch: x64
+            script: dist:mac:dev:x64
+            arch_env: x64
+            artifact: desktop-dev-macos-x64
+            lipo_arch: x86_64
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      # Dev builds have no signing certificate, so the dist:mac:dev scripts
+      # null the release identity pinned in electron-builder.yml and skip
+      # notarization; the result is an unsigned dmg for testing only. The
+      # unsigned overrides live in the script because `pnpm run -- <args>`
+      # inserts a literal `--` that electron-builder treats as end-of-options.
+      - name: Package macOS (${{ matrix.arch }}, unsigned)
+        env:
+          DSH_DESKTOP_ARCH: ${{ matrix.arch_env }}
+        run: pnpm --filter @deepseek-ai/dsh-desktop run ${{ matrix.script }}
+
+      # Gate the arch: lipo must report the expected single slice. electron-builder
+      # names the appOutDir release/mac for the default arch (x64) and suffixes
+      # others (release/mac-arm64), so locate the .app instead of hardcoding.
+      - name: Verify arch
+        run: |
+          APP="$(find apps/desktop/release -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          lipo -info "$APP/Contents/MacOS/DeepSeek Harness" | grep "${{ matrix.lipo_arch }}"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-dmg
+          path: |
+            apps/desktop/release/*.dmg
+            apps/desktop/release/*.dmg.blockmap
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-zip
+          path: |
+            apps/desktop/release/*.zip
+            apps/desktop/release/*.zip.blockmap
+          if-no-files-found: error
+          retention-days: 7
+
+  build-windows:
+    name: Windows (x64 NSIS, unsigned)
+    runs-on: windows-2025
+    defaults:
+      run:
+        shell: pwsh
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - uses: pnpm/action-setup@v4
+        with:
+          dest: ${{ runner.temp }}/setup-pnpm
+
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ env.PRIMARY_NODE_VERSION }}
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install (immutable)
+        run: pnpm install --frozen-lockfile
+
+      - name: Build workspace
+        run: pnpm run build
+
+      - name: Package Windows
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:win
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: desktop-dev-windows
+          path: |
+            apps/desktop/release/*.exe
+            apps/desktop/release/*.blockmap
+          if-no-files-found: error
+          retention-days: 7

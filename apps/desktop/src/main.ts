@@ -27,7 +27,12 @@ import {
   restartNotificationFor,
   type NotificationSink,
 } from './notifications.ts'
-import { createPreferencesStore, DEFAULT_PREFERENCES, type PreferencesStore } from './preferences.ts'
+import {
+  createPreferencesStore,
+  DEFAULT_PREFERENCES,
+  type CloseBehavior,
+  type PreferencesStore,
+} from './preferences.ts'
 
 const APP_NAME = 'DeepSeek Harness'
 
@@ -238,7 +243,7 @@ function resolveAppIcon(): string | undefined {
   const candidates = app.isPackaged
     ? [join(process.resourcesPath, 'desktop-resources', 'icon.png')]
     : [join(app.getAppPath(), 'build', 'icon.png'), join(app.getAppPath(), 'resources', 'icon.png')]
-  return candidates.find((candidate) => existsSync(candidate))
+  return candidates.find(candidate => existsSync(candidate))
 }
 
 /** Load the tray glyph: macOS template PNG, Windows branded icon, empty fallback. */
@@ -397,6 +402,23 @@ function writeNotificationsEnabled(enabled: boolean): NotificationsPrefState {
   return { enabled }
 }
 
+/** Snapshot returned to renderer close-behavior requests. */
+interface CloseBehaviorState {
+  behavior: CloseBehavior
+}
+
+function readCloseBehaviorState(): CloseBehaviorState {
+  const behavior = preferencesStore?.read().closeBehavior ?? DEFAULT_PREFERENCES.closeBehavior
+  return { behavior }
+}
+
+function writeCloseBehavior(behavior: unknown): CloseBehaviorState {
+  const value: CloseBehavior = behavior === 'quit' ? 'quit' : 'tray'
+  const current = preferencesStore?.read() ?? { ...DEFAULT_PREFERENCES }
+  preferencesStore?.write({ ...current, closeBehavior: value })
+  return { behavior: value }
+}
+
 function registerWindowControlIpc(): void {
   ipcMain.handle('dsh:window-minimize', (event) => {
     const win = windowFromEvent(event)
@@ -424,6 +446,10 @@ function registerWindowControlIpc(): void {
   ipcMain.handle('dsh:notifications-get', (): NotificationsPrefState => readNotificationsState())
   ipcMain.handle('dsh:notifications-set', (_event, enabled: unknown): NotificationsPrefState => (
     writeNotificationsEnabled(enabled === true)
+  ))
+  ipcMain.handle('dsh:close-behavior-get', (): CloseBehaviorState => readCloseBehaviorState())
+  ipcMain.handle('dsh:close-behavior-set', (_event, behavior: unknown): CloseBehaviorState => (
+    writeCloseBehavior(behavior)
   ))
 }
 
@@ -556,6 +582,7 @@ function requestAppQuit(): Promise<void> {
 /** Register the renderer-facing updater IPC surface once per process. */
 function registerUpdaterIpc(): void {
   ipcMain.handle('dsh:updater:get-status', () => updater?.status ?? UNSUPPORTED_STATUS)
+  ipcMain.handle('dsh:updater:get-version', () => app.getVersion())
   ipcMain.handle('dsh:updater:check', () => { void updater?.check() })
   // "Install now" is a graceful quit with install-on-quit: it reuses the same
   // teardown as every other quit source rather than quitting out from under
@@ -638,6 +665,7 @@ async function boot(): Promise<void> {
     disposeHost: async () => { await sup.stop() },
     quit: releaseAppQuit,
     reportError: (error) => { console.error('desktop shutdown failed:', error) },
+    readCloseBehavior: () => preferencesStore?.read().closeBehavior ?? DEFAULT_PREFERENCES.closeBehavior,
   })
   createTray()
   mainWindow = createWindow()

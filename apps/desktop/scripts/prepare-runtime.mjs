@@ -23,16 +23,23 @@ const CLI_NODE_MODULES = join(APP_DIR, '..', 'cli', 'node_modules')
 const NODE_VERSION = process.env.DSH_DESKTOP_NODE_VERSION ?? 'v22.19.0'
 
 /**
- * The single runtime staged for this installer. Each build job runs on a
- * runner whose architecture matches the installer it produces (macOS arm64,
+ * The runtime(s) staged for this installer. Each single-arch build job runs on
+ * a runner whose architecture matches the installer it produces (macOS arm64,
  * Windows x64), so the host arch is the target arch and exactly one Node
  * runtime is bundled. `DSH_DESKTOP_ARCH` overrides it for a cross-build.
  * Staging a macOS runtime on Windows would copy its symlinked `bin/` entries
  * into the NSIS archive, which 7za rejects.
+ *
+ * A universal macOS installer instead stages BOTH darwin-{arm64,x64} runtimes
+ * (and keeps both arch variants of the closure's native deps) so one fat
+ * binary serves Intel and Apple Silicon; the shell picks the matching runtime
+ * at launch by `process.arch`. `DSH_DESKTOP_UNIVERSAL=1` selects that mode.
  */
 const TARGETS = process.platform === 'win32'
   ? [{ platform: 'win32', arch: 'x64' }]
-  : [{ platform: 'darwin', arch: process.env.DSH_DESKTOP_ARCH ?? process.arch }]
+  : process.env.DSH_DESKTOP_UNIVERSAL === '1'
+    ? [{ platform: 'darwin', arch: 'arm64' }, { platform: 'darwin', arch: 'x64' }]
+    : [{ platform: 'darwin', arch: process.env.DSH_DESKTOP_ARCH ?? process.arch }]
 
 /** Node's distribution filename names Windows `win`, not `win32`. */
 function distPlatform(platform) {
@@ -135,16 +142,31 @@ function findNested(root, scope, name) {
  * Remove artifacts the deployed closure ships regardless of target but the
  * packaged app never loads:
  * - node-pty bundles prebuilds for every platform in one tarball; only the
- *   `${platform}-${arch}` directory for the staged target is ever required.
+ *   `${platform}-${arch}` directories for the staged target(s) are required.
+ *   A universal macOS build keeps both darwin-{arm64,x64}; a single-arch build
+ *   keeps just its one entry.
+ * - koffi resolves its native backend from `@koromix/koffi-<platform>-<arch>`
+ *   optional deps; the workspace .npmrc installs both darwin CPU variants, so
+ *   prune the ones no staged target loads (e.g. win32/linux on macOS, or the
+ *   other darwin arch on a single-arch build).
  * - `@mistralai/mistralai` publishes its whole source tree; only the compiled
  *   `esm/` entry its `default` export points at is imported at runtime.
+ * @param keep - the `${platform}-${arch}` prebuild directory names to keep.
  */
-function pruneHarness(harnessDir, target) {
-  const keep = `${target.platform}-${target.arch}`
+function pruneHarness(harnessDir, keep) {
+  const keepSet = new Set(keep)
   const prebuilds = join(harnessDir, 'node_modules', 'node-pty', 'prebuilds')
   if (existsSync(prebuilds)) {
     for (const entry of readdirSync(prebuilds)) {
-      if (entry !== keep) rmSync(join(prebuilds, entry), { recursive: true, force: true })
+      if (!keepSet.has(entry)) rmSync(join(prebuilds, entry), { recursive: true, force: true })
+    }
+  }
+  const koffiScope = join(harnessDir, 'node_modules', '@koromix')
+  if (existsSync(koffiScope)) {
+    for (const entry of readdirSync(koffiScope)) {
+      if (!entry.startsWith('koffi-')) continue
+      const variant = entry.slice('koffi-'.length)
+      if (!keepSet.has(variant)) rmSync(join(koffiScope, entry), { recursive: true, force: true })
     }
   }
   for (const mistralaiDir of findNested(harnessDir, '@mistralai', 'mistralai')) {
@@ -243,7 +265,7 @@ try {
   deployHarness()
   restoreLegacyHoists(join(VENDOR_DIR, 'harness'))
   materializeStagedLinks(join(VENDOR_DIR, 'harness'))
-  pruneHarness(join(VENDOR_DIR, 'harness'), TARGETS[0])
+  pruneHarness(join(VENDOR_DIR, 'harness'), TARGETS.map((target) => `${target.platform}-${target.arch}`))
   console.log('prepare-runtime: staged harness closure')
 } catch (error) {
   console.error(`prepare-runtime: harness deploy failed: ${error.message}`)

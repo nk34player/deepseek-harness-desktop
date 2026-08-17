@@ -29,7 +29,7 @@ npmRebuild: false
 # workflow uploads that metadata alongside the installers.
 publish:
   provider: github
-  owner: salathleizhang
+  owner: nk34player
   repo: deepseek-harness-desktop
 mac:
   icon: build/icon.png
@@ -40,6 +40,18 @@ mac:
   # release workflow's environment).
   identity: "Junwei Zhang (7HP3X3977Y)"
   notarize: true
+  # The universal build (dist:mac:universal) merges an arm64 and an x64 app.
+  # The staged payload (extraResources -> Contents/Resources: the bundled Node
+  # runtimes in runtime/, the deployed harness closure in harness/) is copied
+  # byte-identically into both per-arch builds, and it carries per-arch native
+  # binaries (koffi @koromix/koffi-darwin-*, sharp @img/sharp-darwin-*, node-pty
+  # prebuilds, the Node runtime itself). Those Mach-O files are therefore
+  # identical across the two builds, and @electron/universal refuses to lipo
+  # identical files unless they match x64ArchFiles. Skipping the merge is
+  # correct: each variant is single-arch and self-selected at runtime by
+  # process.arch. Everything else under the bundle (Electron framework, the
+  # shell binary) still gets lipo-merged normally.
+  x64ArchFiles: "Contents/Resources/**"
   # `dmg` stays the one-click manual installer; `zip` is the artifact
   # electron-updater downloads for in-app updates (macOS silent replace).
   target:
