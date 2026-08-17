@@ -80,11 +80,13 @@ jobs:
           DSH_DESKTOP_ARCH: ${{ matrix.arch_env }}
         run: pnpm --filter @deepseek-ai/dsh-desktop run ${{ matrix.script }}
 
-      # Gate the arch: lipo must report the expected single slice. Single-arch
-      # builds land in release/mac (appOutDir has no per-arch suffix).
+      # Gate the arch: lipo must report the expected single slice. electron-builder
+      # names the appOutDir release/mac for the default arch (x64) and suffixes
+      # others (release/mac-arm64), so locate the .app instead of hardcoding.
       - name: Verify arch
         run: |
-          lipo -info "apps/desktop/release/mac/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" | grep "${{ matrix.lipo_arch }}"
+          APP="$(find apps/desktop/release -maxdepth 2 -name '*.app' -type d | head -n 1)"
+          lipo -info "$APP/Contents/MacOS/DeepSeek Harness" | grep "${{ matrix.lipo_arch }}"
 
       - uses: actions/upload-artifact@v4
         with:
