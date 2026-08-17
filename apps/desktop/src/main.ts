@@ -305,8 +305,9 @@ function createWindow(): BrowserWindow {
       trafficLightPosition: { x: 16, y: 12 },
       vibrancy: 'sidebar',
       visualEffectState: 'followWindow',
-      transparent: true,
-      backgroundColor: '#00000000',
+      // No `transparent: true` here: a transparent macOS window breaks mouse
+      // hit-testing (clicks die while keyboard focus still works) and is not
+      // resizable, and vibrancy alone already makes the window translucent.
     } : process.platform === 'win32' ? {
       backgroundMaterial: 'acrylic',
       hasShadow: true,
