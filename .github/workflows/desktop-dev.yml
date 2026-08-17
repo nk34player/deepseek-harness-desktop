@@ -80,10 +80,11 @@ jobs:
           DSH_DESKTOP_ARCH: ${{ matrix.arch_env }}
         run: pnpm --filter @deepseek-ai/dsh-desktop run ${{ matrix.script }}
 
-      # Gate the arch: lipo must report the expected single slice.
+      # Gate the arch: lipo must report the expected single slice. Single-arch
+      # builds land in release/mac (appOutDir has no per-arch suffix).
       - name: Verify arch
         run: |
-          lipo -info "apps/desktop/release/mac-${{ matrix.arch }}/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" | grep "${{ matrix.lipo_arch }}"
+          lipo -info "apps/desktop/release/mac/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" | grep "${{ matrix.lipo_arch }}"
 
       - uses: actions/upload-artifact@v4
         with:
