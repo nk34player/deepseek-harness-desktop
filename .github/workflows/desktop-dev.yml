@@ -90,11 +90,19 @@ jobs:
 
       - uses: actions/upload-artifact@v4
         with:
-          name: ${{ matrix.artifact }}
+          name: ${{ matrix.artifact }}-dmg
           path: |
             apps/desktop/release/*.dmg
+            apps/desktop/release/*.dmg.blockmap
+          if-no-files-found: error
+          retention-days: 7
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}-zip
+          path: |
             apps/desktop/release/*.zip
-            apps/desktop/release/*.blockmap
+            apps/desktop/release/*.zip.blockmap
           if-no-files-found: error
           retention-days: 7
 
