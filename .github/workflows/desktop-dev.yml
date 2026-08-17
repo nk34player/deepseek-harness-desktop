@@ -24,7 +24,7 @@ env:
 
 jobs:
   build-macos:
-    name: macOS (arm64 dmg, unsigned)
+    name: macOS (universal dmg, unsigned)
     runs-on: macos-14
     steps:
       - uses: actions/checkout@v6
@@ -50,10 +50,20 @@ jobs:
 
       # Dev builds have no signing certificate, so null the release identity
       # pinned in electron-builder.yml and skip notarization; the result is
-      # an unsigned dmg for testing only. Uses the same dist:mac script as
-      # the release workflow, with the overrides appended via --.
-      - name: Package macOS (unsigned)
-        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac -- --config.mac.identity=null --config.mac.notarize=false
+      # an unsigned dmg for testing only. DSH_DESKTOP_UNIVERSAL=1 stages BOTH
+      # darwin-{arm64,x64} runtimes and native deps, and --universal merges
+      # them into one fat installer that runs on Intel and Apple Silicon.
+      - name: Package macOS (universal, unsigned)
+        env:
+          DSH_DESKTOP_UNIVERSAL: '1'
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac -- --universal --config.mac.identity=null --config.mac.notarize=false
+
+      # Gate the universal merge: both slices must be present before upload.
+      - name: Verify universal binary
+        run: |
+          test -d "apps/desktop/release/mac-universal"
+          lipo -info "apps/desktop/release/mac-universal/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness"
+          lipo -info "apps/desktop/release/mac-universal/DeepSeek Harness.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
 
       - uses: actions/upload-artifact@v4
         with:
