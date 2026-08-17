@@ -1,9 +1,14 @@
 # Build the desktop installers from the dev branch and upload them as
-# artifacts — a dev build, not a release. Every push to dev rebuilds the
-# macOS arm64 .dmg and the Windows x64 NSIS installer so the latest dev state
-# is downloadable from the Actions run. The dev build is unsigned (no
-# certificate secrets) and never creates a GitHub Release; that path stays
+# artifacts — a dev build, not a release. Every push to dev rebuilds three
+# unsigned installers from the latest dev state: macOS arm64, macOS x64, and
+# Windows x64. The dev build never creates a GitHub Release; that path stays
 # with desktop-release.yml on dsh-v* tags.
+#
+# Both macOS jobs run on the arm64 `macos-14` runner. The arm64 job stages the
+# host-arch Node runtime; the x64 job sets DSH_DESKTOP_ARCH=x64 so
+# prepare-runtime.mjs stages the darwin-x64 Node runtime and prunes the
+# arm64-native payload, and dist:mac:dev:x64 passes --x64 to electron-builder,
+# which cross-builds the x64 slice on Apple Silicon.
 name: Desktop (dev build)
 
 on:
@@ -24,8 +29,25 @@ env:
 
 jobs:
   build-macos:
-    name: macOS (universal dmg, unsigned)
+    name: macOS (${{ matrix.arch }} dmg, unsigned)
     runs-on: macos-14
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # arm64 is the host arch; dist:mac:dev builds it natively.
+          - arch: arm64
+            script: dist:mac:dev
+            arch_env: arm64
+            artifact: desktop-dev-macos-arm64
+            lipo_arch: arm64
+          # x64 is cross-built on the arm64 runner: stage the x64 Node runtime
+          # (DSH_DESKTOP_ARCH) and ask electron-builder for an x64 slice.
+          - arch: x64
+            script: dist:mac:dev:x64
+            arch_env: x64
+            artifact: desktop-dev-macos-x64
+            lipo_arch: x86_64
     steps:
       - uses: actions/checkout@v6
         with:
@@ -48,28 +70,24 @@ jobs:
       - name: Build workspace
         run: pnpm run build
 
-      # Dev builds have no signing certificate, so null the release identity
-      # pinned in electron-builder.yml and skip notarization; the result is
-      # an unsigned dmg for testing only. DSH_DESKTOP_UNIVERSAL=1 stages BOTH
-      # darwin-{arm64,x64} runtimes and native deps, and dist:mac:universal
-      # merges them into one fat installer that runs on Intel and Apple
-      # Silicon. The flags live in that script (pnpm run's `--` passthrough
-      # inserts a literal `--` that electron-builder treats as end-of-options).
-      - name: Package macOS (universal, unsigned)
+      # Dev builds have no signing certificate, so the dist:mac:dev scripts
+      # null the release identity pinned in electron-builder.yml and skip
+      # notarization; the result is an unsigned dmg for testing only. The
+      # unsigned overrides live in the script because `pnpm run -- <args>`
+      # inserts a literal `--` that electron-builder treats as end-of-options.
+      - name: Package macOS (${{ matrix.arch }}, unsigned)
         env:
-          DSH_DESKTOP_UNIVERSAL: '1'
-        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:universal
+          DSH_DESKTOP_ARCH: ${{ matrix.arch_env }}
+        run: pnpm --filter @deepseek-ai/dsh-desktop run ${{ matrix.script }}
 
-      # Gate the universal merge: both slices must be present before upload.
-      - name: Verify universal binary
+      # Gate the arch: lipo must report the expected single slice.
+      - name: Verify arch
         run: |
-          test -d "apps/desktop/release/mac-universal"
-          lipo -info "apps/desktop/release/mac-universal/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness"
-          lipo -info "apps/desktop/release/mac-universal/DeepSeek Harness.app/Contents/Frameworks/Electron Framework.framework/Versions/A/Electron Framework"
+          lipo -info "apps/desktop/release/mac-${{ matrix.arch }}/DeepSeek Harness.app/Contents/MacOS/DeepSeek Harness" | grep "${{ matrix.lipo_arch }}"
 
       - uses: actions/upload-artifact@v4
         with:
-          name: desktop-dev-macos
+          name: ${{ matrix.artifact }}
           path: |
             apps/desktop/release/*.dmg
             apps/desktop/release/*.zip

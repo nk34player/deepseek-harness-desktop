@@ -145,6 +145,10 @@ function findNested(root, scope, name) {
  *   `${platform}-${arch}` directories for the staged target(s) are required.
  *   A universal macOS build keeps both darwin-{arm64,x64}; a single-arch build
  *   keeps just its one entry.
+ * - koffi resolves its native backend from `@koromix/koffi-<platform>-<arch>`
+ *   optional deps; the workspace .npmrc installs both darwin CPU variants, so
+ *   prune the ones no staged target loads (e.g. win32/linux on macOS, or the
+ *   other darwin arch on a single-arch build).
  * - `@mistralai/mistralai` publishes its whole source tree; only the compiled
  *   `esm/` entry its `default` export points at is imported at runtime.
  * @param keep - the `${platform}-${arch}` prebuild directory names to keep.
@@ -155,6 +159,14 @@ function pruneHarness(harnessDir, keep) {
   if (existsSync(prebuilds)) {
     for (const entry of readdirSync(prebuilds)) {
       if (!keepSet.has(entry)) rmSync(join(prebuilds, entry), { recursive: true, force: true })
+    }
+  }
+  const koffiScope = join(harnessDir, 'node_modules', '@koromix')
+  if (existsSync(koffiScope)) {
+    for (const entry of readdirSync(koffiScope)) {
+      if (!entry.startsWith('koffi-')) continue
+      const variant = entry.slice('koffi-'.length)
+      if (!keepSet.has(variant)) rmSync(join(koffiScope, entry), { recursive: true, force: true })
     }
   }
   for (const mistralaiDir of findNested(harnessDir, '@mistralai', 'mistralai')) {
