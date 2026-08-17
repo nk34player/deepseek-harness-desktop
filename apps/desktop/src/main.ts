@@ -301,13 +301,12 @@ function createWindow(): BrowserWindow {
     // macOS still uses hidden-inset traffic lights; Windows gets WINDOW_DRAG_CSS.
     frame: process.platform !== 'win32',
     ...(process.platform === 'darwin' ? {
-      titleBarStyle: 'hiddenInset',
-      trafficLightPosition: { x: 16, y: 12 },
-      vibrancy: 'sidebar',
-      visualEffectState: 'followWindow',
-      // No `transparent: true` here: a transparent macOS window breaks mouse
-      // hit-testing (clicks die while keyboard focus still works) and is not
-      // resizable, and vibrancy alone already makes the window translucent.
+      // Plain default macOS window: no `transparent: true`, `vibrancy`,
+      // `titleBarStyle` or `trafficLightPosition`. A transparent macOS window
+      // breaks pointer hit-testing (clicks die while keyboard focus still
+      // works) and is not resizable; vibrancy's NSVisualEffectView and the
+      // hiddenInset titlebar overlay can also sit over the web contents and
+      // swallow mouse events. Plain window.
     } : process.platform === 'win32' ? {
       backgroundMaterial: 'acrylic',
       hasShadow: true,
