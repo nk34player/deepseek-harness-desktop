@@ -243,7 +243,7 @@ function resolveAppIcon(): string | undefined {
   const candidates = app.isPackaged
     ? [join(process.resourcesPath, 'desktop-resources', 'icon.png')]
     : [join(app.getAppPath(), 'build', 'icon.png'), join(app.getAppPath(), 'resources', 'icon.png')]
-  return candidates.find((candidate) => existsSync(candidate))
+  return candidates.find(candidate => existsSync(candidate))
 }
 
 /** Load the tray glyph: macOS template PNG, Windows branded icon, empty fallback. */
@@ -582,6 +582,7 @@ function requestAppQuit(): Promise<void> {
 /** Register the renderer-facing updater IPC surface once per process. */
 function registerUpdaterIpc(): void {
   ipcMain.handle('dsh:updater:get-status', () => updater?.status ?? UNSUPPORTED_STATUS)
+  ipcMain.handle('dsh:updater:get-version', () => app.getVersion())
   ipcMain.handle('dsh:updater:check', () => { void updater?.check() })
   // "Install now" is a graceful quit with install-on-quit: it reuses the same
   // teardown as every other quit source rather than quitting out from under

@@ -22,6 +22,26 @@ export interface CloseBehaviorState {
   behavior: CloseBehavior
 }
 
+/** One snapshot of the desktop auto-updater's state machine. */
+export type UpdateStatus =
+  | { phase: 'unsupported' }
+  | { phase: 'idle' }
+  | { phase: 'checking' }
+  | { phase: 'available'; version: string }
+  | { phase: 'downloading'; version: string; percent: number }
+  | { phase: 'downloaded'; version: string }
+  | { phase: 'up-to-date' }
+  | { phase: 'error'; message: string }
+
+/** The auto-updater surface the Electron preload exposes under `updates`. */
+export interface UpdatesBridge {
+  getStatus: () => Promise<UpdateStatus>
+  getVersion: () => Promise<string>
+  onStatus: (callback: (status: UpdateStatus) => void) => () => void
+  check: () => Promise<void>
+  install: () => Promise<void>
+}
+
 /** Full preload bridge. Individual rows only require the methods they call. */
 export interface DshDesktopBridge {
   getLaunchAtLogin: () => Promise<LaunchAtLoginState>
@@ -30,6 +50,7 @@ export interface DshDesktopBridge {
   setNotifications: (enabled: boolean) => Promise<NotificationsState>
   getCloseBehavior: () => Promise<CloseBehaviorState>
   setCloseBehavior: (behavior: CloseBehavior) => Promise<CloseBehaviorState>
+  updates: UpdatesBridge
 }
 
 declare global {

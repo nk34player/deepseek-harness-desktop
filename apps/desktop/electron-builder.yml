@@ -29,7 +29,7 @@ npmRebuild: false
 # workflow uploads that metadata alongside the installers.
 publish:
   provider: github
-  owner: salathleizhang
+  owner: nk34player
   repo: deepseek-harness-desktop
 mac:
   icon: build/icon.png

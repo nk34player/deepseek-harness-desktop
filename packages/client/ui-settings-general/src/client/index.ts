@@ -26,6 +26,7 @@ import { GeneralSection } from './GeneralSection.tsx'
 import { CloseBehaviorRow, readDesktopCloseBehaviorBridge } from './CloseBehaviorRow.tsx'
 import { LaunchAtLoginRow, readDesktopLaunchAtLoginBridge } from './LaunchAtLoginRow.tsx'
 import { NotificationsRow, readDesktopNotificationsBridge } from './NotificationsRow.tsx'
+import { UpdateRow, readDesktopUpdatesBridge } from './UpdateRow.tsx'
 import { SettingsDocumentAction } from './SettingsDocumentAction.tsx'
 import type { SettingsDocumentActionInjected } from './SettingsDocumentAction.tsx'
 import { refreshDocumentIfLoaded, SettingsDocumentStore } from './settings-document-store.ts'
@@ -43,6 +44,9 @@ export type { LaunchAtLoginRowComponentProps, LaunchAtLoginState } from './Launc
 export { readDesktopLaunchAtLoginBridge } from './LaunchAtLoginRow.tsx'
 export type { NotificationsRowComponentProps, NotificationsState } from './NotificationsRow.tsx'
 export { readDesktopNotificationsBridge } from './NotificationsRow.tsx'
+export type { UpdateRowComponentProps } from './UpdateRow.tsx'
+export { readDesktopUpdatesBridge } from './UpdateRow.tsx'
+export type { UpdateStatus, UpdatesBridge } from './dsh-desktop-bridge.ts'
 export type { SettingsDocumentActionInjected, SettingsDocumentActionProps } from './SettingsDocumentAction.tsx'
 export type { SettingsDocumentState } from './settings-document-store.ts'
 export { SettingsDocumentStore } from './settings-document-store.ts'
@@ -209,5 +213,13 @@ export function apply(ctx: ClientContext): void {
       order: 52,
       locale: NS,
     }, CloseBehaviorRow))
+  }
+  if (readDesktopUpdatesBridge() !== undefined) {
+    ctx.slots.inject('settings.general.item', () => ctx.slots.register({
+      name: 'settings.general.item',
+      id: 'update',
+      order: 60,
+      locale: NS,
+    }, UpdateRow))
   }
 }

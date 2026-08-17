@@ -27,6 +27,7 @@ contextBridge.exposeInMainWorld('dshDesktop', {
    */
   updates: {
     getStatus: () => ipcRenderer.invoke('dsh:updater:get-status'),
+    getVersion: () => ipcRenderer.invoke('dsh:updater:get-version'),
     onStatus(callback) {
       if (typeof callback !== 'function') return () => {}
       const listener = (_event, status) => callback(status)
