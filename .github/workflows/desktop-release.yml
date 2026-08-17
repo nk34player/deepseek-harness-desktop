@@ -5,8 +5,11 @@
 # with publish=false or publish from such a tag.
 #
 # The macOS job signs with the Developer ID Application identity and notarizes
-# via notarytool (credentials come from repository secrets); the Windows job
-# stays unsigned until an Authenticode certificate is added. The installers use
+# via notarytool (credentials come from repository secrets). When the
+# certificate secrets are absent the job builds unsigned instead of failing,
+# so a release can still be produced from a machine without the certificate.
+# The Windows job stays unsigned until an Authenticode certificate is added.
+# The installers use
 # fixed, version-free filenames (set in electron-builder.yml), so the
 # releases/latest/download/<name> links in the READMEs always resolve to the
 # newest release. electron-builder's `publish` config (with `--publish never`)
@@ -67,8 +70,11 @@ jobs:
 
       # Import the Developer ID Application .p12 into a scratch keychain and
       # let codesign read the private key without prompting; electron-builder
-      # resolves `mac.identity` against this default keychain.
+      # resolves `mac.identity` against this default keychain. When either
+      # certificate secret is absent the step is skipped and the packaging step
+      # below builds unsigned instead.
       - name: Import signing certificate
+        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
         env:
           MAC_CERT_P12: ${{ secrets.MAC_CERT_P12 }}
           MAC_CERT_PASSWORD: ${{ secrets.MAC_CERT_PASSWORD }}
@@ -101,9 +107,18 @@ jobs:
           fi
 
       # dist:mac stages the self-contained runtime (macOS Node runtime + the
-      # deployed harness) and builds the host-arch (arm64) dmg.
+      # deployed harness) and builds the host-arch (arm64) dmg, signing with
+      # the pinned Developer ID identity and notarizing via notarytool.
+      # When the certificate secrets are absent the import step above is
+      # skipped and dist:mac:unsigned runs instead, nulling the identity and
+      # disabling notarization so the release packages without the certificate.
       - name: Package macOS
+        if: ${{ secrets.MAC_CERT_P12 != '' && secrets.MAC_CERT_PASSWORD != '' }}
         run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac
+
+      - name: Package macOS (unsigned)
+        if: ${{ secrets.MAC_CERT_P12 == '' || secrets.MAC_CERT_PASSWORD == '' }}
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac:unsigned
 
       - uses: actions/upload-artifact@v4
         with:

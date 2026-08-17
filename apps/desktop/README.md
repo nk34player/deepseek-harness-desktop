@@ -23,7 +23,7 @@ English | [中文](README.zh.md)
 The shell is a thin layer: it spawns `dsh web`, waits for the readiness line, opens one `BrowserWindow` at the served loopback origin, and owns shutdown and crash-restart. The renderer is Chromium loading that origin, so `window.__DSH_BOOT__` injection and the `/api` transport behave exactly as under `dsh web`. No UI is reimplemented.
 
 > [!NOTE]
-> DeepSeek Harness is in developer preview with compatibility-breaking changes, and the shell tracks it. macOS installers are signed and notarized; Windows installers are unsigned, so Windows SmartScreen warns on first open.
+> DeepSeek Harness is in developer preview with compatibility-breaking changes, and the shell tracks it. macOS installers are signed and notarized when the release certificate is available, and unsigned otherwise; Windows installers are unsigned, so Windows SmartScreen warns on first open.
 
 ## Download
 
@@ -85,7 +85,7 @@ pnpm --filter @deepseek-ai/dsh-desktop dist:mac # macOS .dmg
 pnpm --filter @deepseek-ai/dsh-desktop dist:win # Windows x64 NSIS installer
 ```
 
-`dist` builds the shell, stages the self-contained runtime, and packages for the current platform; `dist:mac` and `dist:win` fix the target. Because the harness has architecture-specific native modules, build each installer on its own OS: `dist:mac` on macOS, `dist:win` on Windows.
+`dist` builds the shell, stages the self-contained runtime, and packages for the current platform; `dist:mac` and `dist:win` fix the target. Because the harness has architecture-specific native modules, build each installer on its own OS: `dist:mac` on macOS, `dist:win` on Windows. `dist:mac` signs and notarizes when the Developer ID identity is available; `dist:mac:unsigned` produces an unsigned dmg when it is not.
 
 ## Runtime architecture
 
@@ -114,7 +114,7 @@ electron-builder copies both into `resources/` via `extraResources`. At launch t
 
 A tag-triggered workflow ([desktop-release.yml](../../.github/workflows/desktop-release.yml)) builds and publishes the installers. Pushing a `dsh-v*` tag — the desktop app shares the dsh family's version and tag — builds a macOS arm64 `.dmg` and a Windows x64 NSIS installer and attaches both to a GitHub Release titled `DeepSeek Harness Desktop <version>`. A manual dispatch with `publish: false` rehearses the build without creating a release.
 
-- macOS: signed with a Developer ID Application identity and notarized.
+- macOS: signed with a Developer ID Application identity and notarized when the certificate secrets are set; built unsigned when they are absent, so a release still packages without the certificate.
 - Windows: unsigned until an Authenticode certificate is added.
 - macOS x64: deferred until the harness's native dependencies are built for x64.
 - Auto-update: the `publish` config in `electron-builder.yml` writes `latest-mac.yml` / `latest.yml` (under `--publish never`), which the workflow uploads alongside the installers to serve the in-app `electron-updater` feed.
@@ -140,4 +140,4 @@ The child's stdout/stderr go to `harness.log`; the readiness line (`dsh web: htt
 
 - The `pnpm deploy` closure must include the frontend dist (`@deepseek-ai/dsh-web-frontend/dist`); this is verified against a real install, not yet asserted by a gate.
 - Deep-link forwarding is wired end to end.
-- The macOS installer is signed and notarized; the Windows installer is unsigned, so a Windows auto-update may surface a SmartScreen prompt until an Authenticode certificate is added.
+- The macOS installer is unsigned when the signing certificate is unavailable; the Windows installer is unsigned, so a Windows auto-update may surface a SmartScreen prompt until an Authenticode certificate is added.
