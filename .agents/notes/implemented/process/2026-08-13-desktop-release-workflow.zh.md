@@ -14,15 +14,15 @@ Status: implemented
 
 `.github/workflows/desktop-release.yml` 在两个托管 runner 上构建安装包，并把它们发布为 GitHub Release：
 
-- **macOS**（`macos-14`）：`dist:mac` 暂存自包含运行时并构建 arm64 的 `.dmg`。
+- **macOS**（`macos-14`）：`dist:mac` 暂存自包含运行时并构建 arm64 的 `.dmg`（证书机密缺失时回退到 `dist:mac:unsigned`）。
 - **Windows**（`windows-2025`）：`dist:win` 在原生 `pwsh` 下构建 x64 NSIS 安装包。
 - **Release**（`ubuntu-latest`）：由 `dsh-v*` tag 推送触发，或在该 tag 上以 `publish: true` 手动触发，通过 `gh release create` 把两个安装包挂到标题为 `DeepSeek Harness Desktop <version>` 的 GitHub Release。
 
-electron-builder.yml 设置了带架构后缀的 `artifactName`，让发布页上的 macOS 与 Windows 安装包一目了然。它还钉死了 macOS 的 `identity`（不带证书类型前缀）并启用 `notarize: true`，同时设 `npmRebuild: false`（壳进程内没有原生依赖）；工作流把 `.p12` 导入临时钥匙串，并借助仓库 secret 里的 App Store Connect API key 通过 `notarytool` 公证。
+electron-builder.yml 设置了带架构后缀的 `artifactName`，让发布页上的 macOS 与 Windows 安装包一目了然。它还钉死了 macOS 的 `identity`（不带证书类型前缀）并启用 `notarize: true`，同时设 `npmRebuild: false`（壳进程内没有原生依赖）；工作流把 `.p12` 导入临时钥匙串，并借助仓库 secret 里的 App Store Connect API key 通过 `notarytool` 公证。当任一证书机密缺失时，导入步骤被跳过，`dist:mac:unsigned` 会置空 identity 并关闭公证（`--config.mac.identity=null --config.mac.notarize=false`），从而发布包以未签名方式产出，而不是因 identity 缺失而构建失败。
 
 `prepare-runtime` 统一用 `tar -xf` 解压每个归档（bsdtar 既能读 tarball 也能读 zip，无需 `unzip`），把 Windows 下载名改为 `win` 而非 `win32`，只暂存宿主架构的单一 Node 运行时并[裁剪闭包](2026-08-14-prune-desktop-runtime-bundle.md)，并在 Windows 上用 shell 启动 `pnpm` 使 `pnpm.cmd` 得以运行。
 
-macOS 安装包已签名并公证；Windows 安装包在加入 Authenticode 证书之前仍为未签名，自动更新源亦被延后。
+macOS 安装包在证书机密存在时签名并公证，缺失时则为未签名；Windows 安装包在加入 Authenticode 证书之前仍为未签名，自动更新源亦被延后。
 
 ## Alternatives considered
 
@@ -39,4 +39,4 @@ macOS 安装包已签名并公证；Windows 安装包在加入 Authenticode 证�
 - **桌面发布可由 tag 复现。** 推送 `dsh-v0.1.0-rc.5` 即可得到 macOS arm64 的 `.dmg` 与 Windows 安装包，并挂到 GitHub Release，全程不需要开发机。
 - **macOS x64 安装包被延后。** 在 arm64 runner 上交叉构建会把 harness 闭包的原生依赖（koffi、node-pty）部署成 arm64 二进制；要交付正确的 x64 构建，需要原生 x64 主机或交叉编译原生模块。
 - **每个平台作业都要跑一次完整仓库构建。** 这比一次共享构建慢，但能让打包按平台原生进行，也与 `prepare-runtime` 从已构建工作区部署 harness 闭包的方式一致。
-- **只有 macOS 已签名并公证。** 在加入 Authenticode 证书之前，Windows 用户仍会看到 SmartScreen 警告；两个平台都完成签名也是上线自动更新源的前置条件。
+- **macOS 仅在证书可用时签名并公证。** 证书缺失时发布包以未签名 dmg 产出；在加入 Authenticode 证书之前，Windows 用户仍会看到 SmartScreen 警告；两个平台都完成签名也是上线自动更新源的前置条件。

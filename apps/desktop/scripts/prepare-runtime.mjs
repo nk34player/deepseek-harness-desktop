@@ -86,8 +86,15 @@ function extractNode(target, archive) {
   rmSync(archive, { force: true })
 }
 
+/**
+ * Deploy the harness closure into `vendor/harness`. The optional natives the
+ * shipped installers load (`@img/sharp-*`, `@koromix/koffi-*`, `node-pty`
+ * prebuilds) are selected by `supportedArchitectures` in pnpm-workspace.yaml —
+ * the only place pnpm reads it for `pnpm deploy` (CLI `--config.supportedArchitectures.*`
+ * flags and a .npmrc block are both ignored) — so one deploy carries every
+ * staged target's natives and `pruneHarness` keeps the ones they load.
+ */
 function deployHarness() {
-  rmSync(join(VENDOR_DIR, 'harness'), { recursive: true, force: true })
   run('pnpm', [
     '--filter', '@deepseek-ai/dsh', 'deploy',
     '--legacy', '--prod',
@@ -146,9 +153,9 @@ function findNested(root, scope, name) {
  *   A universal macOS build keeps both darwin-{arm64,x64}; a single-arch build
  *   keeps just its one entry.
  * - koffi resolves its native backend from `@koromix/koffi-<platform>-<arch>`
- *   optional deps; the workspace .npmrc installs both darwin CPU variants, so
- *   prune the ones no staged target loads (e.g. win32/linux on macOS, or the
- *   other darwin arch on a single-arch build).
+ *   optional deps; the single deploy (see {@link deployHarness}) carries every
+ *   configured platform's variant, so prune the ones no staged target loads
+ *   (e.g. win32 on macOS, or the other darwin arch on a single-arch build).
  * - `@mistralai/mistralai` publishes its whole source tree; only the compiled
  *   `esm/` entry its `default` export points at is imported at runtime.
  * @param keep - the `${platform}-${arch}` prebuild directory names to keep.
