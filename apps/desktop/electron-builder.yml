@@ -19,10 +19,12 @@ extraResources:
     to: desktop-resources
 asar: true
 # The shell has no in-process native dependencies — the harness runs as a
-# child process on its bundled Node — so skip electron-builder's dependency
-# rebuild (which would otherwise re-run `pnpm install --production` and trip
-# the workspace's postinstall).
+# child process on its bundled Node. npmRebuild: false skips the native
+# rebuild, and the beforeBuild hook (resolving false) skips electron-builder's
+# own `pnpm install --production`, which would otherwise prune devDependencies
+# and trip the workspace's root postinstall (install-lefthook.mjs).
 npmRebuild: false
+beforeBuild: ./scripts/before-build.cjs
 # In-app auto-update feed. electron-updater reads the `latest-mac.yml` /
 # `latest.yml` this config generates (written locally even under
 # `--publish never`) and downloads the release assets they name. The release
