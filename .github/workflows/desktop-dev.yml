@@ -50,15 +50,10 @@ jobs:
 
       # Dev builds have no signing certificate, so null the release identity
       # pinned in electron-builder.yml and skip notarization; the result is
-      # an unsigned dmg for testing only. Mirrors dist:mac's steps (tsc,
-      # prepare-runtime, electron-builder) with those overrides injected.
+      # an unsigned dmg for testing only. Uses the same dist:mac script as
+      # the release workflow, with the overrides appended via --.
       - name: Package macOS (unsigned)
-        env:
-          CSC_IDENTITY_AUTO_DISCOVERY: 'false'
-        run: |
-          pnpm --filter @deepseek-ai/dsh-desktop run build
-          pnpm --filter @deepseek-ai/dsh-desktop exec node scripts/prepare-runtime.mjs
-          pnpm --filter @deepseek-ai/dsh-desktop exec electron-builder --mac --publish never --config.mac.identity=null --config.mac.notarize=false
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:mac -- --config.mac.identity=null --config.mac.notarize=false
 
       - uses: actions/upload-artifact@v4
         with:
@@ -98,12 +93,8 @@ jobs:
       - name: Build workspace
         run: pnpm run build
 
-      # Mirrors dist:win's steps (tsc, prepare-runtime, electron-builder).
       - name: Package Windows
-        run: |
-          pnpm --filter @deepseek-ai/dsh-desktop run build
-          pnpm --filter @deepseek-ai/dsh-desktop exec node scripts/prepare-runtime.mjs
-          pnpm --filter @deepseek-ai/dsh-desktop exec electron-builder --win --publish never
+        run: pnpm --filter @deepseek-ai/dsh-desktop run dist:win
 
       - uses: actions/upload-artifact@v4
         with:
