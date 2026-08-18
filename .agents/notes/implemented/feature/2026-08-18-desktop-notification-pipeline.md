@@ -17,7 +17,7 @@ Add a narrow renderer-to-main notification channel:
   - The session manager's `approval/requested` frame handling raises 「`<toolName>`」需要审批 — once per NEW approval; a replayed still-pending request is idempotent and must not re-alert.
   - The ui-update status source raises 发现新版本 `<version>` on the transition into the `available` phase (same-version re-pushes do not re-alert).
 
-Product copy is Chinese. The runtime keeps only the minimal bridge surface it calls (`notify?: { title, body }`), and the shell revalidates, so the object layer never trusts the renderer payload.
+Notification copy is English. The runtime keeps only the minimal bridge surface it calls (`notify?: { title, body }`), and the shell revalidates, so the object layer never trusts the renderer payload.
 
 ## Alternatives considered
 

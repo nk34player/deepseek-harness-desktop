@@ -50,7 +50,7 @@ export function createUpdateStatusSource(bridge: DesktopUpdateBridge): UpdateSta
     // Alert the user once when a new version first becomes available (only the
     // transition into `available` fires; a plain browser has no shell bridge).
     if (next.phase === 'available' && snapshot.phase !== 'available' && typeof window !== 'undefined') {
-      window.dshDesktop?.notify?.({ title: 'DeepSeek Harness', body: `发现新版本 ${next.version}` })
+      window.dshDesktop?.notify?.({ title: 'DeepSeek Harness', body: `Update ${next.version} available` })
     }
     snapshot = next
     for (const listener of [...listeners]) listener()

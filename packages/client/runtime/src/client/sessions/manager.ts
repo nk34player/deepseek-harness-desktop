@@ -758,7 +758,7 @@ export class SessionManager {
       // idempotent and must not re-alert the user.
       const isNew = this.pendingInteractions.get(frame.sessionId)?.has(key) !== true
       this.trackPending(frame.sessionId, key, 'approval')
-      if (isNew) raiseDesktopNotification(`「${frame.toolName}」需要审批`)
+      if (isNew) raiseDesktopNotification(`Approval needed: ${frame.toolName}`)
     } else if (frame.type === 'approval/resolved') {
       this.resolvePending(frame.sessionId, `a:${frame.approvalId}`)
     } else if (frame.type === 'question/requested') {

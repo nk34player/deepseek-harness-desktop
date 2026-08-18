@@ -24,18 +24,18 @@ export function parseRendererNotification(payload: unknown): ShellNotification |
 }
 
 export const RESTART_NOTIFICATION: ShellNotification = {
-  title: 'DeepSeek Harness 意外退出',
-  body: '正在自动重启，窗口稍后恢复。',
+  title: 'DeepSeek Harness',
+  body: 'The harness crashed and is restarting automatically — the window will recover shortly.',
 }
 
 export const REPEATED_RESTART_NOTIFICATION: ShellNotification = {
-  title: 'DeepSeek Harness 反复崩溃',
-  body: '已连续重启失败 3 次，可打开日志排查。',
+  title: 'DeepSeek Harness',
+  body: 'The harness failed to restart 3 times in a row — check the logs.',
 }
 
 export const RECOVERED_NOTIFICATION: ShellNotification = {
-  title: 'DeepSeek Harness 已恢复',
-  body: '服务已恢复正常。',
+  title: 'DeepSeek Harness',
+  body: 'The harness has recovered and is back online.',
 }
 
 /** Stable throttle key for the recovery notification. */

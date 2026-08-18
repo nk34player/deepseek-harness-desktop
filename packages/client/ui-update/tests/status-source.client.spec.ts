@@ -36,7 +36,7 @@ describe('update status source notifications', () => {
 
     push({ phase: 'available', version: '0.2.0' })
     expect(notify).toHaveBeenCalledTimes(1)
-    expect(notify).toHaveBeenCalledWith({ title: 'DeepSeek Harness', body: '发现新版本 0.2.0' })
+    expect(notify).toHaveBeenCalledWith({ title: 'DeepSeek Harness', body: 'Update 0.2.0 available' })
 
     // A same-version re-push (interval re-check) must not re-alert the user.
     push({ phase: 'available', version: '0.2.0' })

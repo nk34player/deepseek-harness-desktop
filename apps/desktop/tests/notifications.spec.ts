@@ -48,8 +48,8 @@ describe('desktop notification throttle', () => {
 
 describe('renderer notification parsing (IPC trust boundary)', () => {
   it('accepts a { title, body } payload', () => {
-    expect(parseRendererNotification({ title: '标题', body: '内容' }))
-      .toEqual({ title: '标题', body: '内容' })
+    expect(parseRendererNotification({ title: 'Title', body: 'Body' }))
+      .toEqual({ title: 'Title', body: 'Body' })
   })
 
   it('rejects non-object payloads', () => {
@@ -61,10 +61,10 @@ describe('renderer notification parsing (IPC trust boundary)', () => {
 
   it('rejects missing or empty title/body', () => {
     expect(parseRendererNotification({})).toBeUndefined()
-    expect(parseRendererNotification({ title: '标题' })).toBeUndefined()
-    expect(parseRendererNotification({ body: '内容' })).toBeUndefined()
-    expect(parseRendererNotification({ title: '', body: '内容' })).toBeUndefined()
-    expect(parseRendererNotification({ title: '标题', body: '' })).toBeUndefined()
-    expect(parseRendererNotification({ title: 1, body: '内容' })).toBeUndefined()
+    expect(parseRendererNotification({ title: 'Title' })).toBeUndefined()
+    expect(parseRendererNotification({ body: 'Body' })).toBeUndefined()
+    expect(parseRendererNotification({ title: '', body: 'Body' })).toBeUndefined()
+    expect(parseRendererNotification({ title: 'Title', body: '' })).toBeUndefined()
+    expect(parseRendererNotification({ title: 1, body: 'Body' })).toBeUndefined()
   })
 })
