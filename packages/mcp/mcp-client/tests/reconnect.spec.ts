@@ -521,25 +521,29 @@ describe('reconnect supervisor', () => {
     expect(mockConnect).toHaveBeenCalledTimes(2)
   })
 
-  it('re-points the stdio child when an already-open session is activated', async () => {
+  it('stays bound to its workspace when another session opens or is activated', async () => {
     await ctx.plugin(SessionStore)
     await apply(ctx, stdioConfigWithWorkspace())
     await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
 
-    // Two already-open sessions in different workspaces; the most recent wins.
+    // The server binds to the first workspace it observes.
     ctx.sessions.create(SessionId('alpha'), { meta: { cwd: '/alpha' } })
     await vi.waitFor(() => { expect(instances).toHaveLength(2) })
-    ctx.sessions.create(SessionId('beta'), { meta: { cwd: '/beta' } })
-    await vi.waitFor(() => { expect(instances).toHaveLength(3) })
-    expect(stdioTransportOptions[2]?.cwd).toBe('/beta')
+    expect(stdioTransportOptions[1]?.cwd).toBe('/alpha')
 
-    // Switching the tab back to the older session activates it without creating
-    // a new session — the tracker must re-point on `session/activated`.
+    // A second session in a different workspace must not re-point the bound server.
+    ctx.sessions.create(SessionId('beta'), { meta: { cwd: '/beta' } })
+    await sleep(30)
+    expect(instances).toHaveLength(2)
+    expect(stdioTransportOptions[1]?.cwd).toBe('/alpha')
+
+    // Activating another already-open session must not re-point either.
     const alpha = ctx.sessions.get(SessionId('alpha'))
     if (alpha === undefined) throw new Error('alpha must be live')
     ctx.emit('session/activated', alpha)
-    await vi.waitFor(() => { expect(instances).toHaveLength(4) })
-    expect(stdioTransportOptions[3]?.cwd).toBe('/alpha')
+    await sleep(30)
+    expect(instances).toHaveLength(2)
+    expect(stdioTransportOptions[1]?.cwd).toBe('/alpha')
   })
 
   it('does not re-point when a session opens in the already-bound workspace', async () => {
@@ -583,7 +587,7 @@ describe('reconnect supervisor', () => {
     expect(instances).toHaveLength(3)
   })
 
-  it('re-points to the configured cwd when the last workspace session is disposed', async () => {
+  it('stays bound to its workspace when the last workspace session is disposed', async () => {
     await ctx.plugin(SessionStore)
     await apply(ctx, stdioConfigWithWorkspace())
     await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
@@ -594,13 +598,15 @@ describe('reconnect supervisor', () => {
     await vi.waitFor(() => { expect(instances).toHaveLength(2) })
     expect(stdioTransportOptions[1]?.cwd).toBe('/workspace')
 
-    // The last eligible session leaves: the fallback configured cwd is bound.
+    // The last eligible session leaves: the server stays bound to its workspace
+    // rather than falling back to the configured cwd.
     detach()
-    await vi.waitFor(() => { expect(instances).toHaveLength(3) })
-    expect(stdioTransportOptions[2]?.cwd).toBe('')
+    await sleep(30)
+    expect(instances).toHaveLength(2)
+    expect(stdioTransportOptions[1]?.cwd).toBe('/workspace')
   })
 
-  it('re-points immediately during a reconnect backoff, cancelling the pending retry', async () => {
+  it('a workspace change during a reconnect backoff does not re-point the bound server', async () => {
     await ctx.plugin(SessionStore)
     await apply(ctx, stdioConfigWithWorkspace({ initialDelayMs: 60_000, maxDelayMs: 60_000, maxAttempts: 5 }))
     await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
@@ -608,15 +614,12 @@ describe('reconnect supervisor', () => {
     ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
     await vi.waitFor(() => { expect(instances).toHaveLength(2) })
 
-    // Crash the current generation: it schedules a long failure retry. A
-    // workspace change must cancel that retry and spawn immediately instead.
+    // Crash the current generation: it schedules a long failure retry. A later
+    // workspace change must NOT re-point the bound server — no new child spawns.
     instances[1]!.onclose?.()
     ctx.sessions.create(SessionId('ws2'), { meta: { cwd: '/workspace2' } })
-    await vi.waitFor(() => { expect(instances).toHaveLength(3) })
-    expect(stdioTransportOptions[2]?.cwd).toBe('/workspace2')
-    // The cancelled retry timer must not spawn a fourth child later.
     await sleep(30)
-    expect(instances).toHaveLength(3)
+    expect(instances).toHaveLength(2)
   })
 
   it('a re-point enqueued before dispose does not spawn a new child', async () => {

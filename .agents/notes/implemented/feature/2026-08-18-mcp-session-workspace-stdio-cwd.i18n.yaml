@@ -2,5 +2,5 @@
 # side as of the last confirmed-consistent state. Both languages carry equal authority;
 # after editing either side, bring the other along and re-record with:
 #   pnpm run verify-translation-pairing --write .agents/notes/implemented/feature/2026-08-18-mcp-session-workspace-stdio-cwd.md
-2026-08-18-mcp-session-workspace-stdio-cwd.md: a044e8a485127eb5608c3d2132673d0ef023ac06
-2026-08-18-mcp-session-workspace-stdio-cwd.zh.md: e059b92f1ffb04417e4533ae567907cb401d18df
+2026-08-18-mcp-session-workspace-stdio-cwd.md: e2de7fb49de3d0a7e1d8738edfcf16e9a6f29fa6
+2026-08-18-mcp-session-workspace-stdio-cwd.zh.md: 83b409f351981a1ca4f276cb06474a5b5b020b72
