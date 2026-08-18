@@ -3,10 +3,9 @@
  * entered or activated live, non-subagent session that carries one. A plain
  * creation arrives as `session/created`; a browser tab switch between
  * already-open sessions arrives as `session/activated` and is treated the same
- * way, so the current value always reflects the tab the user is viewing.
- * mcp-client reads this value once to bind a `useSessionWorkspace` stdio server
- * to the first workspace it observes; the server then stays there and does not
- * follow later tab switches.
+ * way, so the server follows the tab the user is actually viewing. mcp-client
+ * uses this value to spawn stdio servers inside the user's active project folder
+ * when the stdio config sets `useSessionWorkspace`.
  *
  * @module
  */

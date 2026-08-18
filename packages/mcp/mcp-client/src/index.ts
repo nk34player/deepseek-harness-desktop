@@ -66,10 +66,10 @@ export interface StdioConfig {
   cwd: string
   /**
    * Spawn the child in the harness's currently-open workspace (the cwd of the
-   * most recently opened session) instead of `cwd`. The child binds to the
-   * first workspace it observes and then stays there, so a later session switch
-   * to another workspace never re-points it. Use for servers that derive a
-   * search root from their process cwd (e.g. a file indexer).
+   * most recently opened session) instead of `cwd`. When the workspace changes,
+   * the server is re-spawned with the new cwd. Use for servers that derive a
+   * search root from their process cwd (e.g. a file indexer); avoid for
+   * long-lived GUI bridges, which restart on every workspace change.
    */
   useSessionWorkspace?: boolean
   /** Per-tool-call timeout in milliseconds. */
