@@ -271,6 +271,12 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     )
     try {
       spawnCwd = effectiveCwd()
+      // If a workspace is already current at spawn, bind to it now; otherwise
+      // the first `onWorkspaceChange` binds it. Either way the server is then
+      // fixed and never migrates on later session switches or reconnects.
+      if (useWorkspaceCwd && boundCwd === undefined && workspaceTracker?.current !== undefined) {
+        boundCwd = spawnCwd
+      }
       await generation.connect(createTransport(config, spawnCwd))
       if (hasClosed()) {
         attemptSettled = true
@@ -314,22 +320,31 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let spawnCwd = ''
   /** Serializes workspace re-points so quick changes never overlap children. */
   let repointChain: Promise<void> = Promise.resolve()
+  /**
+   * The workspace the server is permanently bound to, or undefined until the
+   * first one is observed. A single shared server cannot serve multiple
+   * workspaces, so it binds to the first workspace it sees and stays there —
+   * later session switches never migrate it.
+   */
+  let boundCwd: string | undefined
 
   /**
-   * The effective spawn cwd for this connect attempt: the tracked workspace
-   * when `useWorkspaceCwd`, else the configured `cwd` (empty = host cwd). Only
-   * the stdio config carries a spawn cwd; other transports ignore it.
+   * The effective spawn cwd for this connect attempt: the bound workspace once
+   * observed, else the tracked workspace when `useWorkspaceCwd`, else the
+   * configured `cwd` (empty = host cwd). Only the stdio config carries a spawn
+   * cwd; other transports ignore it.
    */
   function effectiveCwd(): string {
     const fallback = config.transport === 'stdio' ? config.cwd : ''
-    return useWorkspaceCwd ? (workspaceTracker?.current ?? fallback) : fallback
+    return useWorkspaceCwd ? (boundCwd ?? workspaceTracker?.current ?? fallback) : fallback
   }
 
   /**
-   * A workspace change on a session-workspace-bound server re-points the child:
-   * close the current generation (awaiting its close so children never
-   * overlap) and spawn a fresh one with the new cwd, outside the failure
-   * backoff and attempt budget. Same-cwd changes are no-ops.
+   * Bind the server to the first workspace and then stay there. Only the first
+   * observed workspace re-points the child (closing the current generation,
+   * awaiting its close so children never overlap, then spawning a fresh one
+   * with that cwd, outside the failure backoff and attempt budget). Every later
+   * change is ignored so the server keeps serving its own workspace.
    * @param cwd - the new current workspace, or `undefined` when none remains.
    */
   function onWorkspaceChange(cwd: string | undefined): void {
@@ -338,7 +353,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     // this guard; it defends against future wiring changes only.
     /* v8 ignore next -- unreachable: no event fires while disposed or without the flag */
     if (disposed || !useWorkspaceCwd) return
+    // Once bound, the server is fixed to its own workspace; later switches are
+    // ignored.
+    if (boundCwd !== undefined) return
     const next = cwd ?? config.cwd
+    boundCwd = next
     if (next === spawnCwd) return
     // A re-point supersedes any scheduled failure retry: without cancelling it,
     // the retry and the re-point could spawn overlapping children.
