@@ -41,7 +41,7 @@ The model sees `mcp__github__create_issue`, `mcp__web__search`, … — the same
 | `args` | stdio | no | Arguments passed to the command |
 | `env` | stdio | no | Extra env vars merged on top of scrubbed ambient env |
 | `cwd` | stdio | no | Working directory for the child process; empty uses the host cwd |
-| `useSessionWorkspace` | stdio | no | Spawn in the currently-open workspace instead of `cwd`, re-spawning on workspace change (default `false`) |
+| `useSessionWorkspace` | stdio | no | Spawn one server per live session, each rooted in that session's workspace instead of `cwd` (default `false`) |
 | `url` | http | yes | MCP server URL |
 | `headers` | http | no | Extra headers (e.g. auth tokens) |
 | `toolCallTimeoutMs` | both | no | Timeout per `callTool` invocation (default 60000) |
@@ -70,14 +70,14 @@ Every MCP tool has two names: the raw MCP name (sent on the wire in `tools/call`
 - On disconnect/crash: the supervisor restarts the original server config with exponential backoff (`reconnect.initialDelayMs` doubling up to `reconnect.maxDelayMs`) and re-runs discovery on success — the recovered generation replaces the previous one, so tools neither duplicate nor leak. During the outage the last good generation stays registered; calls against it fail until recovery.
 - Reconnection is budgeted per outage: after `reconnect.maxAttempts` consecutive failures the server's tools are unregistered and reconnection stops until an HMR reload or Host restart. A connection that survives past `maxDelayMs` resets the budget, so an occasionally-crashing server recovers indefinitely while a crash-looping one — even with briefly successful connects — still exhausts the cap instead of restarting forever.
 - Reconnect states are user-visible in logs: reconnecting (warn, with attempt count and delay), recovered (info), final failure and disabled-loss (error). Disposal cancels any pending reconnect. With `reconnect.enabled: false`, a lost connection keeps tools registered but failing until a reload — the manual-recovery behavior.
-- With `useSessionWorkspace: true`, the stdio child is spawned in the currently-open workspace — the cwd of the most recently opened session — instead of `cwd` (falling back to `cwd`/host when no session is open yet). When the workspace changes, the server is re-spawned with the new cwd (logged, outside the reconnect budget). Use this for servers that derive a search root from their process cwd (e.g. a file indexer); avoid it for long-lived GUI bridges, which restart on every workspace change. A server with no sessions mounted stays on its configured `cwd`.
+- With `useSessionWorkspace: true`, each live session gets its own stdio child rooted in that session's workspace (`header.cwd`), and that child's tools are registered scoped to that session's agent — so a file-indexer like fff always searches the session it is used in and never returns another workspace's results. A session's child spawns when the session is created and tears down when it is disposed. Use this for servers that derive a search root from their process cwd (e.g. a file indexer); avoid it for long-lived GUI bridges, which would run once per session. This requires the `agents` service; without it, the server falls back to the configured `cwd`.
 
 ## Services consumed
 
 | Service | Usage |
 |---|---|
 | `ctx.tools` | Register/unregister MCP tools |
-| `ctx.sessions` (optional) | Track the currently-open workspace for `useSessionWorkspace`; the child falls back to `cwd` when absent |
+| `ctx.agents` (per-session) | Drive one `useSessionWorkspace` child per live session, rooted in that session's workspace |
 
 ## Model Experience
 
@@ -112,7 +112,7 @@ Append-only; newly visible content follows the reusable request prefix and does 
 ## Known Limitations and Deferred Work
 
 - **Tools are the only bridged MCP capability** — Resources and Prompts have no harness consumer and are deferred.
-- **Workspace re-points track session creation, not the browser tab** — `useSessionWorkspace` follows the most recently opened session; switching between two already-open sessions in different workspaces without creating a new session does not re-point the child.
+- **A `useSessionWorkspace` server runs once per session** — each live session spawns its own child rooted in that session's workspace, so same-workspace sessions run redundant children. Deduplicating to one child per workspace is deferred.
 - **Startup timeout is inherited from the MCP SDK** — DSH does not yet expose a connection/discovery timeout. Each initialize or paginated `tools/list` request uses the SDK's 60-second default, so an unresponsive server or cursor chain can delay both activation and teardown while the initial synchronization settles.
 - **Reconnect triggers on transport close** — a crashed stdio child fires it; Streamable HTTP failures surface per request and through the SDK transport's own SSE-stream recovery, so an unreachable HTTP server is retried per call rather than respawned by the supervisor.
 - **Native non-text rendering is lossy** — image, audio, and resource payloads become placeholders in model context even though the execution-local canonical value preserves their JSON blocks. Richer Native multimedia projection is deferred.

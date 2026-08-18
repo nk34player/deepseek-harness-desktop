@@ -16,8 +16,9 @@
 import type { Context } from '@deepseek-ai/cordis'
 import z from '@deepseek-ai/schemastery'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
+import type { Agent, AgentRegistry } from '@deepseek-ai/dsh-agent'
 import { RECONNECT_DEFAULTS, resolveReconnectPolicy, startConnection } from './connection.ts'
-import type { ReconnectConfig } from './connection.ts'
+import type { ConnectionHandle, ReconnectConfig, ResolvedReconnectPolicy } from './connection.ts'
 // Side-effect type import: declaration-merges `ctx.tools` onto Context.
 import type {} from '@deepseek-ai/dsh-tools'
 
@@ -65,11 +66,13 @@ export interface StdioConfig {
   /** Working directory for the child process; empty uses the host cwd. */
   cwd: string
   /**
-   * Spawn the child in the harness's currently-open workspace (the cwd of the
-   * most recently opened session) instead of `cwd`. When the workspace changes,
-   * the server is re-spawned with the new cwd. Use for servers that derive a
-   * search root from their process cwd (e.g. a file indexer); avoid for
-   * long-lived GUI bridges, which restart on every workspace change.
+   * Spawn one child per live session, each rooted in that session's workspace
+   * (its `header.cwd`), instead of one shared child on `cwd`. Each session's
+   * child registers its tools scoped to that session's agent, so a file-indexer
+   * like fff always searches the session it is used in and never leaks another
+   * workspace's results. Use for servers that derive a search root from their
+   * process cwd (e.g. a file indexer); avoid for long-lived GUI bridges, which
+   * would run once per session.
    */
   useSessionWorkspace?: boolean
   /** Per-tool-call timeout in milliseconds. */
@@ -139,6 +142,69 @@ export const Config = z.union([
 // ---- Plugin apply ----
 
 /**
+ * The workspace one session's `useSessionWorkspace` child roots in: the cwd of
+ * a live non-subagent session, or undefined when the session carries none.
+ * Subagent sessions inherit their parent's cwd, so giving each one its own
+ * child would only duplicate a server already rooted there.
+ * @param agent - the live agent/session to classify.
+ */
+function sessionWorkspace(agent: Agent): string | undefined {
+  if (agent.session.header.origin === 'subagent') return undefined
+  return agent.session.header.cwd
+}
+
+/**
+ * Mount one supervised connection per live session for a `useSessionWorkspace`
+ * stdio server, each rooted in that session's workspace and registering its
+ * tools scoped to that session's agent. Sessions created later spawn their own
+ * child; a disposed session tears its child down. Effect-scoped: disposal
+ * detaches the listeners and disposes every live per-session connection.
+ *
+ * Activation does not await any one connection — children spawn and settle as
+ * their sessions appear, so `failOnStartupError` has no single startup to gate.
+ *
+ * @param ctx - plugin context providing the `agents` service and global events.
+ * @param agents - the live agent registry (per-session children are keyed by agent id).
+ * @param config - the resolved stdio config carrying `useSessionWorkspace`.
+ * @param reconnect - fully resolved reconnect policy.
+ */
+function mountPerSessionConnections(
+  ctx: Context,
+  agents: AgentRegistry,
+  config: StdioConfig,
+  reconnect: ResolvedReconnectPolicy,
+): void {
+  const connections = new Map<string, ConnectionHandle>()
+
+  const spawn = (agent: Agent): void => {
+    const cwd = sessionWorkspace(agent)
+    if (cwd === undefined || connections.has(agent.id)) return
+    connections.set(agent.id, startConnection(agent.ctx, { ...config, cwd }, reconnect))
+  }
+  const detach = (agent: Agent): void => {
+    const handle = connections.get(agent.id)
+    if (handle === undefined) return
+    connections.delete(agent.id)
+    void handle.dispose()
+  }
+
+  // Seed from already-live agents (an HMR reload of this plugin lands mid-session).
+  for (const agent of agents.list()) spawn(agent)
+
+  const offCreated = ctx.on('agent/created', ({ agent }) => spawn(agent), { global: true })
+  const offDisposed = ctx.on('agent/disposed', ({ agent }) => detach(agent), { global: true })
+
+  ctx.effect(() => {
+    return async () => {
+      offCreated()
+      offDisposed()
+      await Promise.all([...connections.values()].map(handle => handle.dispose()))
+      connections.clear()
+    }
+  }, 'mcp-client.per-session-connections')
+}
+
+/**
  * Connect one MCP server and publish its initial tool generation before activation.
  * This entry remains explicitly `async`: Cordis treats a prototype-bearing
  * ordinary function as a constructor, whose returned Promise is not startup work.
@@ -168,6 +234,19 @@ export async function apply(ctx: Context, config: Config): Promise<void> {
     names.add(config.serverName)
     return () => void names.delete(config.serverName)
   }, 'mcp-client.serverName')
+
+  // A session-workspace stdio server runs one child per session, each rooted in
+  // that session's workspace; there is no single connection to gate activation.
+  if (config.transport === 'stdio' && config.useSessionWorkspace === true) {
+    const agents = ctx.get('agents')
+    if (agents !== undefined) {
+      mountPerSessionConnections(ctx, agents, config, reconnect)
+      return
+    }
+    ctx.logger.warn(
+      `mcp-client(${config.serverName}): useSessionWorkspace requires the agents service — falling back to the configured cwd`,
+    )
+  }
 
   // The supervisor owns the client/transport generations, the reconnect
   // loop, and the live tool registrations; disposal stops reconnection,

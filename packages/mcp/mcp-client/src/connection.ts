@@ -20,7 +20,6 @@ import { ToolListChangedNotificationSchema } from '@modelcontextprotocol/sdk/typ
 import type { Context } from '@deepseek-ai/cordis'
 import { MAX_TIMER_DELAY_MS } from '@deepseek-ai/dsh-timeout'
 import { createTransport } from './transport.ts'
-import { SessionWorkspaceTracker } from './session-workspace.ts'
 import { syncTools } from './tools.ts'
 import type { ToolBridgeOptions, ToolDisposers } from './tools.ts'
 import type { Config } from './index.ts'
@@ -140,7 +139,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let client: Client | undefined
   /** Close signal paired with {@link client}; captured by dispose before current ownership is cleared. */
   let clientClosed: Promise<void> | undefined
-  /** Live tool registrations owned by this server; only {@link enqueueSync} and dispose swap it. */
+  /** Live tool registrations owned by this server; enqueueSync and dispose swap it. */
   let disposers: ToolDisposers = new Map()
   let reconnectTimer: NodeJS.Timeout | undefined
   /** Consecutive failed connection attempts within the current outage. */
@@ -270,7 +269,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       },
     )
     try {
-      spawnCwd = effectiveCwd()
+      const spawnCwd = config.transport === 'stdio' ? config.cwd : ''
       await generation.connect(createTransport(config, spawnCwd))
       if (hasClosed()) {
         attemptSettled = true
@@ -306,75 +305,6 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     if (failedAttempts > 0) ctx.logger.info(`${label}: reconnected and re-synced tools (attempt ${failedAttempts}/${policy.maxAttempts})`)
   }
 
-  // ---- Session-workspace binding ----
-
-  /** Whether the stdio child's cwd is derived from the currently-open workspace. */
-  const useWorkspaceCwd = config.transport === 'stdio' && config.useSessionWorkspace === true
-  /** The cwd the current generation spawned with (set in {@link connectGeneration}). */
-  let spawnCwd = ''
-  /** Serializes workspace re-points so quick changes never overlap children. */
-  let repointChain: Promise<void> = Promise.resolve()
-
-  /**
-   * The effective spawn cwd for this connect attempt: the tracked workspace
-   * when `useWorkspaceCwd`, else the configured `cwd` (empty = host cwd). Only
-   * the stdio config carries a spawn cwd; other transports ignore it.
-   */
-  function effectiveCwd(): string {
-    const fallback = config.transport === 'stdio' ? config.cwd : ''
-    return useWorkspaceCwd ? (workspaceTracker?.current ?? fallback) : fallback
-  }
-
-  /**
-   * A workspace change on a session-workspace-bound server re-points the child:
-   * close the current generation (awaiting its close so children never
-   * overlap) and spawn a fresh one with the new cwd, outside the failure
-   * backoff and attempt budget. Same-cwd changes are no-ops.
-   * @param cwd - the new current workspace, or `undefined` when none remains.
-   */
-  function onWorkspaceChange(cwd: string | undefined): void {
-    // The tracker exists only when useWorkspaceCwd is set, and dispose() flips
-    // `disposed` before the tracker unsubscribes, so no live event can reach
-    // this guard; it defends against future wiring changes only.
-    /* v8 ignore next -- unreachable: no event fires while disposed or without the flag */
-    if (disposed || !useWorkspaceCwd) return
-    const next = cwd ?? config.cwd
-    if (next === spawnCwd) return
-    // A re-point supersedes any scheduled failure retry: without cancelling it,
-    // the retry and the re-point could spawn overlapping children.
-    if (reconnectTimer !== undefined) {
-      clearTimeout(reconnectTimer)
-      reconnectTimer = undefined
-    }
-    repointChain = repointChain.then(async () => {
-      if (disposed) return
-      // A later change superseded this re-point: the current generation is
-      // already spawned with the newest workspace.
-      if (client !== undefined && effectiveCwd() === spawnCwd) return
-      const current = client
-      const currentClosed = clientClosed
-      client = undefined
-      clientClosed = undefined
-      if (current !== undefined) {
-        try { await current.close() } catch { /* transport already gone */ }
-        if (currentClosed !== undefined && !await waitForClose(currentClosed)) {
-          ctx.logger.error(`${label}: workspace change could not close the previous server within ${GENERATION_CLOSE_TIMEOUT_MS}ms — re-point stopped to avoid overlapping server processes; reload the plugin or restart the Host to retry`)
-          return
-        }
-      }
-      // dispose() can run while the close/quiescence above is awaited, so the
-      // re-check is reachable even though the analyzer cannot see the await.
-      // oxlint-disable-next-line typescript/no-unnecessary-condition -- dispose() can run during the awaited close
-      if (disposed) return
-      settling = connectGeneration(false)
-    })
-  }
-
-  /** Tracks the currently-open workspace when the config binds the stdio cwd to it. */
-  const workspaceTracker = useWorkspaceCwd
-    ? new SessionWorkspaceTracker(ctx, onWorkspaceChange)
-    : undefined
-
   /** The in-flight (or last settled) connection attempt; dispose awaits it for quiescence. */
   let settling = connectGeneration(true)
 
@@ -397,7 +327,6 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
     ready,
     async dispose(): Promise<void> {
       disposed = true
-      workspaceTracker?.dispose()
       if (reconnectTimer !== undefined) {
         clearTimeout(reconnectTimer)
         reconnectTimer = undefined

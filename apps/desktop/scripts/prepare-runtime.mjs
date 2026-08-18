@@ -146,6 +146,29 @@ function findNested(root, scope, name) {
 }
 
 /**
+ * Recursively remove files a packaged app never loads from the deployed
+ * closure: source maps (`.map`), type declarations (`.d.ts`), test suites
+ * (`tests`, `__tests__`, `test`), and README docs. Node resolves JS modules at
+ * runtime — none of these are read. LICENSE files are kept for legal compliance.
+ * @param dir - a directory under the closure to walk.
+ */
+function stripRuntimeCruft(dir) {
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    const path = join(dir, entry.name)
+    if (entry.isDirectory()) {
+      if (entry.name === 'tests' || entry.name === '__tests__' || entry.name === 'test') {
+        rmSync(path, { recursive: true, force: true })
+      } else {
+        stripRuntimeCruft(path)
+      }
+    } else if (entry.isFile()
+      && (entry.name.endsWith('.map') || entry.name.endsWith('.d.ts') || /^README/i.test(entry.name))) {
+      rmSync(path, { force: true })
+    }
+  }
+}
+
+/**
  * Remove artifacts the deployed closure ships regardless of target but the
  * packaged app never loads:
  * - node-pty bundles prebuilds for every platform in one tarball; only the
@@ -156,8 +179,12 @@ function findNested(root, scope, name) {
  *   optional deps; the single deploy (see {@link deployHarness}) carries every
  *   configured platform's variant, so prune the ones no staged target loads
  *   (e.g. win32 on macOS, or the other darwin arch on a single-arch build).
+ * - sharp ships a native binary per platform/arch under `@img/sharp-*` /
+ *   `@img/sharp-libvips-*`; keep only the staged target's variant.
  * - `@mistralai/mistralai` publishes its whole source tree; only the compiled
  *   `esm/` entry its `default` export points at is imported at runtime.
+ * - `stripRuntimeCruft` drops source maps, type declarations, test suites, and
+ *   READMEs that the bundled Node never loads.
  * @param keep - the `${platform}-${arch}` prebuild directory names to keep.
  */
 function pruneHarness(harnessDir, keep) {
@@ -181,6 +208,17 @@ function pruneHarness(harnessDir, keep) {
       rmSync(join(mistralaiDir, sub), { recursive: true, force: true })
     }
   }
+  const imgScope = join(harnessDir, 'node_modules', '@img')
+  if (existsSync(imgScope)) {
+    for (const entry of readdirSync(imgScope)) {
+      if (!entry.startsWith('sharp-')) continue
+      const variant = entry.startsWith('sharp-libvips-')
+        ? entry.slice('sharp-libvips-'.length)
+        : entry.slice('sharp-'.length)
+      if (!keepSet.has(variant)) rmSync(join(imgScope, entry), { recursive: true, force: true })
+    }
+  }
+  stripRuntimeCruft(join(harnessDir, 'node_modules'))
 }
 
 /**
