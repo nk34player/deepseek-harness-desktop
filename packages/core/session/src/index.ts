@@ -63,6 +63,17 @@ declare module '@deepseek-ai/cordis' {
      */
     'session/disposed'(this: Scoped<Session>, session: Session): void
     /**
+     * Emitted on the shared host context when the user activates a session in
+     * the GUI (the browser switches the viewed tab). A UI/control signal — never
+     * appended to the session log — that host plugins such as mcp-client use to
+     * follow the currently-viewed session's workspace. Not scope-filtered: the
+     * viewed tab is a global fact, not an agent-owned one. The session is live
+     * when emitted; callers resolve it from the store before emitting.
+     * @param session - the session the user is now viewing.
+     * @mode emit
+     */
+    'session/activated'(session: Session): void
+    /**
      * Post-commit, fire-and-forget append feed. The listener snapshot resolves
      * before the log push, but callbacks run after it; observer failures are
      * logged and contained without making the committed append fail.

@@ -521,6 +521,27 @@ describe('reconnect supervisor', () => {
     expect(mockConnect).toHaveBeenCalledTimes(2)
   })
 
+  it('re-points the stdio child when an already-open session is activated', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    // Two already-open sessions in different workspaces; the most recent wins.
+    ctx.sessions.create(SessionId('alpha'), { meta: { cwd: '/alpha' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    ctx.sessions.create(SessionId('beta'), { meta: { cwd: '/beta' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(3) })
+    expect(stdioTransportOptions[2]?.cwd).toBe('/beta')
+
+    // Switching the tab back to the older session activates it without creating
+    // a new session — the tracker must re-point on `session/activated`.
+    const alpha = ctx.sessions.get(SessionId('alpha'))
+    if (alpha === undefined) throw new Error('alpha must be live')
+    ctx.emit('session/activated', alpha)
+    await vi.waitFor(() => { expect(instances).toHaveLength(4) })
+    expect(stdioTransportOptions[3]?.cwd).toBe('/alpha')
+  })
+
   it('does not re-point when a session opens in the already-bound workspace', async () => {
     await ctx.plugin(SessionStore)
     await apply(ctx, stdioConfigWithWorkspace())
