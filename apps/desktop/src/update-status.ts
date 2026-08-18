@@ -84,6 +84,32 @@ export function reduceUpdateStatus(current: UpdateStatus, event: UpdateEvent): U
 }
 
 /**
+ * electron-updater error codes that mean "GitHub has not published a release
+ * yet" — a benign timing window, not a real updater failure.
+ */
+const BENIGN_NO_RELEASE_CODES = new Set(['ERR_UPDATER_NO_PUBLISHED_VERSIONS'])
+
+/**
+ * Classify one electron-updater error into a status event. The
+ * `ERR_UPDATER_NO_PUBLISHED_VERSIONS` code — GitHub reports no published
+ * release, which happens when the app checks before the release workflow
+ * finishes publishing, or when the installed version is already the newest —
+ * folds to `not-available` (up-to-date) instead of surfacing as an alarming
+ * "Update failed". Every other error stays an `error`.
+ * @param error - the electron-updater error, which may carry a `code`.
+ * @returns the event to dispatch into {@link reduceUpdateStatus}.
+ */
+export function updateEventForError(error: unknown): UpdateEvent {
+  const code = typeof error === 'object' && error !== null
+    ? (error as { code?: unknown }).code
+    : undefined
+  if (typeof code === 'string' && BENIGN_NO_RELEASE_CODES.has(code)) {
+    return { type: 'not-available' }
+  }
+  return { type: 'error', message: error instanceof Error ? error.message : String(error) }
+}
+
+/**
  * Structural equality over the small status union. The store only republishes
  * when the fact actually moves, so a no-op re-dispatch keeps the snapshot
  * reference stable.

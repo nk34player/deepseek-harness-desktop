@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import {
   createUpdateStatusStore,
   reduceUpdateStatus,
+  updateEventForError,
   type UpdateStatus,
 } from '../src/update-status.ts'
 
@@ -80,5 +81,25 @@ describe('createUpdateStatusStore', () => {
     const initial: UpdateStatus = { phase: 'downloaded', version: '0.2.0' }
     const store = createUpdateStatusStore(initial)
     expect(store.getSnapshot()).toBe(initial)
+  })
+})
+
+describe('updateEventForError', () => {
+  it('folds a benign no-published-versions error into up-to-date', () => {
+    const error = Object.assign(new Error('No published versions on GitHub'), { code: 'ERR_UPDATER_NO_PUBLISHED_VERSIONS' })
+    expect(updateEventForError(error)).toEqual({ type: 'not-available' })
+  })
+
+  it('keeps a real error as an error with its message', () => {
+    expect(updateEventForError(new Error('network down'))).toEqual({ type: 'error', message: 'network down' })
+  })
+
+  it('keeps an error with an unrelated code as an error', () => {
+    const error = Object.assign(new Error('cannot find latest-mac.yml'), { code: 'ERR_UPDATER_CHANNEL_FILE_NOT_FOUND' })
+    expect(updateEventForError(error)).toEqual({ type: 'error', message: 'cannot find latest-mac.yml' })
+  })
+
+  it('stringifies a non-Error throw', () => {
+    expect(updateEventForError('boom')).toEqual({ type: 'error', message: 'boom' })
   })
 })
