@@ -938,10 +938,9 @@ export interface PiAiProviderProfile {
    */
   modelOverrides?: Record<string, PiAiModelOverride>
   /**
-   * Reasoning-dispatch switches for every `openai-completions` model on this
-   * route; each model's own `compat` overrides per field. What neither sets
-   * keeps the installed catalog entry's value, then pi-ai's baseURL-derived
-   * detection.
+   * Compatibility switches for every `openai-completions` model on this route;
+   * each model's own `compat` overrides per field. What neither sets keeps the
+   * installed catalog entry's value, then pi-ai's baseURL-derived detection.
    */
   compat?: PiAiCompatProfile
   /**
@@ -1036,19 +1035,22 @@ export interface PiAiModelProfile {
 export type PiAiModelOverride = Omit<PiAiModelProfile, 'id'>
 
 /**
- * Reasoning-dispatch compatibility switches, set on the route (its models'
- * default) or per model (winning over the route). Only the switches pi-ai's
- * reasoning dispatch reads are offered; the rest of pi-ai's compat surface
- * keeps its baseURL-derived auto-detection. pi-ai types both fields only on
- * `OpenAICompletionsCompat` — the other wire protocols define their reasoning
- * fields in the protocol itself — so resolution rejects a model-level switch
- * anywhere else, while a route-level default skips past models it cannot fit.
+ * Compatibility switches, set on the route (its models' default) or per model
+ * (winning over the route). Only the switches pi-ai itself reads are offered —
+ * the reasoning-dispatch pair and the developer-role switch — and the rest of
+ * pi-ai's compat surface keeps its baseURL-derived auto-detection. pi-ai types
+ * these only on `OpenAICompletionsCompat` — the other wire protocols define
+ * their reasoning fields in the protocol itself — so resolution rejects a
+ * model-level switch anywhere else, while a route-level default skips past
+ * models it cannot fit.
  */
 export interface PiAiCompatProfile {
   /** Reasoning parameter format the endpoint expects; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   thinkingFormat?: PiAiThinkingFormat
   /** Whether the endpoint accepts `reasoning_effort`; absent keeps the catalog entry's, then pi-ai's baseURL-derived guess. */
   supportsReasoningEffort?: boolean
+  /** Whether the endpoint accepts the `developer` role (vs `system`); absent keeps pi-ai's baseURL-derived guess. */
+  supportsDeveloperRole?: boolean
 }
 
 /** One request modality a pi-ai model may accept. */
@@ -1079,7 +1081,7 @@ type WithheldThinkingFormat = 'chat-template' | 'qwen-chat-template'
 
 Depends on: `Api` (`@earendil-works/pi-ai`) · `CacheRetention` (`@earendil-works/pi-ai`) · `Model` (`@earendil-works/pi-ai`) · `ModelThinkingLevel` (`@earendil-works/pi-ai`) · `OpenAICompletionsCompat` (`@earendil-works/pi-ai`) · [`RetryPolicyConfig`](../packages/llm/llm/src/index.ts) · `ThinkingBudgets` (`@earendil-works/pi-ai`) · `Transport` (`@earendil-works/pi-ai`)
 
-Source: [`packages/llm/llm-pi-ai/src/config.ts:172`](../packages/llm/llm-pi-ai/src/config.ts)
+Source: [`packages/llm/llm-pi-ai/src/config.ts:171`](../packages/llm/llm-pi-ai/src/config.ts)
 
 <a id="deepseek-aidsh-llm-replay"></a>
 
@@ -1233,11 +1235,13 @@ export interface StdioConfig {
   /** Working directory for the child process; empty uses the host cwd. */
   cwd: string
   /**
-   * Spawn the child in the harness's currently-open workspace (the cwd of the
-   * most recently opened session) instead of `cwd`. When the workspace changes,
-   * the server is re-spawned with the new cwd. Use for servers that derive a
-   * search root from their process cwd (e.g. a file indexer); avoid for
-   * long-lived GUI bridges, which restart on every workspace change.
+   * Spawn one child per live session, each rooted in that session's workspace
+   * (its `header.cwd`), instead of one shared child on `cwd`. Each session's
+   * child registers its tools scoped to that session's agent, so a file-indexer
+   * like fff always searches the session it is used in and never leaks another
+   * workspace's results. Use for servers that derive a search root from their
+   * process cwd (e.g. a file indexer); avoid for long-lived GUI bridges, which
+   * would run once per session.
    */
   useSessionWorkspace?: boolean
   /** Per-tool-call timeout in milliseconds. */
@@ -1283,7 +1287,7 @@ export interface ReconnectConfig {
 }
 ```
 
-Source: [`packages/mcp/mcp-client/src/index.ts:106`](../packages/mcp/mcp-client/src/index.ts)
+Source: [`packages/mcp/mcp-client/src/index.ts:109`](../packages/mcp/mcp-client/src/index.ts)
 
 <a id="deepseek-aidsh-message-feedback"></a>
 

@@ -779,6 +779,23 @@ describe('reasoning-dispatch compat switches', () => {
     expect(models.get('dialect-odd')?.compat).toEqual({ thinkingFormat: 'openai', supportsReasoningEffort: false })
   })
 
+  it('forwards the developer-role switch so pi-ai picks system over developer', () => {
+    const models = modelsOf({
+      'acme-gateway': {
+        api: 'openai-completions',
+        baseURL: 'https://acme.test',
+        compat: { supportsDeveloperRole: false },
+        models: [
+          { id: 'default-role' },
+          { id: 'per-model-role', compat: { supportsDeveloperRole: true } },
+        ],
+      },
+    }, 'acme-gateway')
+
+    expect((models.get('default-role')?.compat as OpenAICompletionsCompat).supportsDeveloperRole).toBe(false)
+    expect((models.get('per-model-role')?.compat as OpenAICompletionsCompat).supportsDeveloperRole).toBe(true)
+  })
+
   it('merges the switches over the catalog entry’s own compat instead of replacing it', () => {
     const [catalogModel] = getBuiltinModels('deepseek')
     if (catalogModel === undefined) throw new Error('the installed catalog ships no deepseek model')
