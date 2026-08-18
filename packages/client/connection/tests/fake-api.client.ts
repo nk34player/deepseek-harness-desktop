@@ -121,6 +121,7 @@ export class FakeApiClient implements IApiClient {
     attachment: (payload: unknown) => this.record('session.attachment', payload, this.onAttachment(payload)),
     updateQueue: (payload: unknown) => this.record('session.updateQueue', payload, this.onUpdateQueue(payload)),
     cancel: (payload: unknown) => this.record('session.cancel', payload, this.onCancel(payload)),
+    activate: (payload: unknown) => this.record('session.activate', payload, Promise.resolve(ok({ accepted: true as const }))),
   }
 
   readonly subagents: IApiClient['subagents'] = {
