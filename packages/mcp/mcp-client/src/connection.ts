@@ -140,7 +140,7 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
   let client: Client | undefined
   /** Close signal paired with {@link client}; captured by dispose before current ownership is cleared. */
   let clientClosed: Promise<void> | undefined
-  /** Live tool registrations owned by this server; only {@link enqueueSync} and dispose swap it. */
+  /** Live tool registrations owned by this server; enqueueSync, dispose, and the workspace re-point swap it. */
   let disposers: ToolDisposers = new Map()
   let reconnectTimer: NodeJS.Timeout | undefined
   /** Consecutive failed connection attempts within the current outage. */
@@ -351,6 +351,11 @@ export function startConnection(ctx: Context, config: Config, policy: ResolvedRe
       // A later change superseded this re-point: the current generation is
       // already spawned with the newest workspace.
       if (client !== undefined && effectiveCwd() === spawnCwd) return
+      // Unregister the previous generation's tools immediately so no tool call
+      // during the re-point window can hit the old workspace's server. The
+      // re-pointed generation re-registers them after it connects and syncs.
+      for (const dispose of disposers.values()) dispose()
+      disposers = new Map()
       const current = client
       const currentClosed = clientClosed
       client = undefined

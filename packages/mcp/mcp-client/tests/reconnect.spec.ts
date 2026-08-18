@@ -583,6 +583,24 @@ describe('reconnect supervisor', () => {
     expect(instances).toHaveLength(3)
   })
 
+  it("unregisters the previous workspace's tools as a re-point starts", async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace({ initialDelayMs: 60_000, maxDelayMs: 60_000, maxAttempts: 5 }))
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    // Re-point to the first workspace registers its tools.
+    ctx.sessions.create(SessionId('ws1'), { meta: { cwd: '/workspace1' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    // Switching to a second workspace unregisters the previous generation's tools
+    // immediately. Make the re-pointed connect fail so the tools stay unregistered
+    // and we can assert they never served the old workspace after the switch.
+    mockConnect.mockRejectedValueOnce(new Error('re-point connect failed'))
+    ctx.sessions.create(SessionId('ws2'), { meta: { cwd: '/workspace2' } })
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeUndefined() })
+  })
+
   it('re-points to the configured cwd when the last workspace session is disposed', async () => {
     await ctx.plugin(SessionStore)
     await apply(ctx, stdioConfigWithWorkspace())
