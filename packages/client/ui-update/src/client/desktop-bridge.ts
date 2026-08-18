@@ -41,6 +41,8 @@ interface DesktopGlobal {
   readonly electron?: string
   readonly updates?: DesktopUpdateBridge
   readonly onDeepLink?: (callback: (url: string) => void) => () => void
+  /** Raise a native notification through the shell. */
+  readonly notify?: (notification: { title: string; body: string }) => void
 }
 
 declare global {

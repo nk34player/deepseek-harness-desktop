@@ -68,6 +68,13 @@ export class UpdateController extends EventEmitter<UpdateControllerEvents> {
   start(): void {
     autoUpdater.autoDownload = true
     autoUpdater.autoInstallOnAppQuit = false
+    // Releases are versioned `0.1.0-rc.N` but published as non-prerelease
+    // GitHub releases with a `latest.yml` feed. Force the stable update path
+    // (`/releases/latest` -> `latest.yml`): the default prerelease path derives
+    // channel "rc" from the version and first looks for `latest-rc.yml`, which
+    // the release does not publish — it only finds the update via a fragile
+    // fallback to `latest.yml`.
+    autoUpdater.allowPrerelease = false
     autoUpdater.on('checking-for-update', () => { this.dispatch({ type: 'checking' }) })
     autoUpdater.on('update-available', (info) => { this.dispatch({ type: 'available', version: info.version }) })
     autoUpdater.on('download-progress', (progress) => {
