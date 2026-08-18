@@ -65,6 +65,7 @@ nsis:
   oneClick: false
   allowToChangeInstallationDirectory: true
   # The app runs in the tray by default (closeBehavior: 'tray'), so a running
-  # instance survives the window closing. Auto-kill it during install instead of
-  # prompting to close it, so upgrading never forces an uninstall/reinstall.
-  killRunningProcesses: true
+  # instance survives the window closing. close-running-app.nsh replaces the
+  # default "please close the app" prompt with an automatic kill, so upgrading
+  # never blocks on a dialog or feels like it needs an uninstall first.
+  include: close-running-app.nsh
