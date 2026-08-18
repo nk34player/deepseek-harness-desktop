@@ -13,6 +13,7 @@ import { EventEmitter } from 'node:events'
 import electronUpdater from 'electron-updater'
 import {
   createUpdateStatusStore,
+  updateEventForError,
   type UpdateEvent,
   type UpdateStatus,
   type UpdateStatusStore,
@@ -30,11 +31,6 @@ export interface UpdateControllerOptions {
 export interface UpdateControllerEvents {
   /** The folded status changed; carries the new status. */
   status: [status: UpdateStatus]
-}
-
-/** Map one electron-updater event into a reducer input. */
-function messageOf(error: unknown): string {
-  return error instanceof Error ? error.message : String(error)
 }
 
 /**
@@ -79,7 +75,7 @@ export class UpdateController extends EventEmitter<UpdateControllerEvents> {
     })
     autoUpdater.on('update-downloaded', (info) => { this.dispatch({ type: 'downloaded', version: info.version }) })
     autoUpdater.on('update-not-available', () => { this.dispatch({ type: 'not-available' }) })
-    autoUpdater.on('error', (error) => { this.dispatch({ type: 'error', message: messageOf(error) }) })
+    autoUpdater.on('error', (error) => { this.dispatch(updateEventForError(error)) })
     void this.check()
     this.timer = setInterval(() => { void this.check() }, this.options.checkIntervalMs)
   }
@@ -93,7 +89,7 @@ export class UpdateController extends EventEmitter<UpdateControllerEvents> {
     try {
       await autoUpdater.checkForUpdates()
     } catch (error) {
-      this.dispatch({ type: 'error', message: messageOf(error) })
+      this.dispatch(updateEventForError(error))
     }
   }
 

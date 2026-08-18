@@ -7,6 +7,7 @@
 import { describe, expect, it, vi, beforeEach } from 'vitest'
 import { Context } from '@deepseek-ai/cordis'
 import SystemPrompt from '@deepseek-ai/dsh-system-prompt'
+import SessionStore, { SessionId } from '@deepseek-ai/dsh-session'
 import ToolRuntime from '@deepseek-ai/dsh-tools'
 import { CallId } from '@deepseek-ai/dsh-llm'
 import type { Config } from '@deepseek-ai/dsh-mcp-client'
@@ -15,7 +16,10 @@ import type { Config } from '@deepseek-ai/dsh-mcp-client'
 
 // vi.mock factories are hoisted above every import/const, so the mock fns and
 // class must be created inside vi.hoisted to exist when the factories run.
-const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient, instances } = vi.hoisted(() => {
+const {
+  mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler,
+  MockClient, instances, mockStdioTransport, stdioTransportOptions,
+} = vi.hoisted(() => {
   const mockConnect = vi.fn<() => Promise<void>>()
   const mockClose = vi.fn<() => Promise<void>>()
   const mockListTools = vi.fn<(_params?: Record<string, unknown>) => Promise<unknown>>()
@@ -41,7 +45,17 @@ const { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotification
     constructor() { instances.push(this) }
   }
   const instances: MockClient[] = []
-  return { mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler, MockClient, instances }
+  /** The spawn options (command, args, cwd) of every StdioClientTransport construction. */
+  const stdioTransportOptions: { command: string; args: string[]; cwd: string }[] = []
+  // A plain function so `new StdioClientTransport(...)` (the SDK's own use) works.
+  const mockStdioTransport = vi.fn(function (this: unknown, options: { command: string; args: string[]; cwd: string }) {
+    stdioTransportOptions.push(options)
+    return { start: vi.fn(), close: vi.fn() }
+  })
+  return {
+    mockConnect, mockClose, mockListTools, mockCallTool, mockSetNotificationHandler,
+    MockClient, instances, mockStdioTransport, stdioTransportOptions,
+  }
 })
 
 vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
@@ -49,7 +63,7 @@ vi.mock('@modelcontextprotocol/sdk/client/index.js', () => ({
 }))
 
 vi.mock('@modelcontextprotocol/sdk/client/stdio.js', () => ({
-  StdioClientTransport: vi.fn(),
+  StdioClientTransport: mockStdioTransport,
 }))
 
 vi.mock('@modelcontextprotocol/sdk/client/streamableHttp.js', () => ({
@@ -106,6 +120,22 @@ function stdioConfig(reconnect?: Config['reconnect']): Config {
   }
 }
 
+/** A stdio config that binds the spawn cwd to the currently-open workspace. */
+function stdioConfigWithWorkspace(reconnect?: Config['reconnect']): Config {
+  return {
+    transport: 'stdio',
+    serverName: 'srv',
+    command: 'echo',
+    args: [],
+    env: {},
+    cwd: '',
+    useSessionWorkspace: true,
+    toolCallTimeoutMs: 60_000,
+    failOnStartupError: false,
+    ...reconnect === undefined ? {} : { reconnect },
+  }
+}
+
 /** The tool list the mock server advertises after a successful (re)connect. */
 function listing(...names: string[]): { tools: { name: string; inputSchema: { type: string } }[]; nextCursor: undefined } {
   return {
@@ -127,6 +157,7 @@ describe('reconnect supervisor', () => {
   beforeEach(async () => {
     vi.clearAllMocks()
     instances.length = 0
+    stdioTransportOptions.length = 0
     mockConnect.mockResolvedValue(undefined)
     mockClose.mockImplementation(function (this: { onclose?: () => void }) {
       this.onclose?.()
@@ -471,6 +502,207 @@ describe('reconnect supervisor', () => {
     const staleHandler = mockSetNotificationHandler.mock.calls[0]![1] as () => Promise<void>
     await staleHandler()
     expect(mockListTools).toHaveBeenCalledTimes(listCalls)
+  })
+
+  it('re-points the stdio child to the opened workspace when useSessionWorkspace is set', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+    // Initial spawn: no session yet, so the configured cwd fallback is used.
+    expect(stdioTransportOptions).toHaveLength(1)
+    expect(stdioTransportOptions[0]?.cwd).toBe('')
+
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    expect(stdioTransportOptions).toHaveLength(2)
+    expect(stdioTransportOptions[1]?.cwd).toBe('/workspace')
+    // The re-pointed generation re-syncs the same tools.
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+    expect(mockConnect).toHaveBeenCalledTimes(2)
+  })
+
+  it('re-points the stdio child when an already-open session is activated', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    // Two already-open sessions in different workspaces; the most recent wins.
+    ctx.sessions.create(SessionId('alpha'), { meta: { cwd: '/alpha' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    ctx.sessions.create(SessionId('beta'), { meta: { cwd: '/beta' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(3) })
+    expect(stdioTransportOptions[2]?.cwd).toBe('/beta')
+
+    // Switching the tab back to the older session activates it without creating
+    // a new session — the tracker must re-point on `session/activated`.
+    const alpha = ctx.sessions.get(SessionId('alpha'))
+    if (alpha === undefined) throw new Error('alpha must be live')
+    ctx.emit('session/activated', alpha)
+    await vi.waitFor(() => { expect(instances).toHaveLength(4) })
+    expect(stdioTransportOptions[3]?.cwd).toBe('/alpha')
+  })
+
+  it('does not re-point when a session opens in the already-bound workspace', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    ctx.sessions.create(SessionId('first'), { meta: { cwd: '/workspace' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    // A second session in the same workspace must not spawn another child.
+    ctx.sessions.create(SessionId('second'), { meta: { cwd: '/workspace' } })
+    await sleep(30)
+    expect(instances).toHaveLength(2)
+    expect(stdioTransportOptions).toHaveLength(2)
+  })
+
+  it('does not re-point without useSessionWorkspace', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfig())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    await sleep(30)
+    expect(instances).toHaveLength(1)
+    expect(stdioTransportOptions).toHaveLength(1)
+    expect(stdioTransportOptions[0]?.cwd).toBe('')
+  })
+
+  it('a workspace re-point does not consume the failure-reconnect budget', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    // Re-point once (a fresh child), then crash: the outage budget still has all
+    // its attempts, so the server recovers instead of giving up immediately.
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    mockListTools.mockResolvedValue(listing('revived'))
+    instances[1]!.onclose?.()
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__revived')).toBeDefined() })
+    expect(instances).toHaveLength(3)
+  })
+
+  it('re-points to the configured cwd when the last workspace session is disposed', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    const session = ctx.sessions.prepare(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    const detach = ctx.sessions.enter(session)
+    ctx.sessions.announce(session)
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    expect(stdioTransportOptions[1]?.cwd).toBe('/workspace')
+
+    // The last eligible session leaves: the fallback configured cwd is bound.
+    detach()
+    await vi.waitFor(() => { expect(instances).toHaveLength(3) })
+    expect(stdioTransportOptions[2]?.cwd).toBe('')
+  })
+
+  it('re-points immediately during a reconnect backoff, cancelling the pending retry', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace({ initialDelayMs: 60_000, maxDelayMs: 60_000, maxAttempts: 5 }))
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+
+    // Crash the current generation: it schedules a long failure retry. A
+    // workspace change must cancel that retry and spawn immediately instead.
+    instances[1]!.onclose?.()
+    ctx.sessions.create(SessionId('ws2'), { meta: { cwd: '/workspace2' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(3) })
+    expect(stdioTransportOptions[2]?.cwd).toBe('/workspace2')
+    // The cancelled retry timer must not spawn a fourth child later.
+    await sleep(30)
+    expect(instances).toHaveLength(3)
+  })
+
+  it('a re-point enqueued before dispose does not spawn a new child', async () => {
+    await ctx.plugin(SessionStore)
+    const handle = startConnection(ctx, stdioConfigWithWorkspace(), resolveReconnectPolicy(undefined, 'reconnect'))
+    await handle.ready
+    await vi.waitFor(() => { expect(instances).toHaveLength(1) })
+
+    // Enqueue a re-point, then dispose before its microtask runs.
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    await handle.dispose()
+    await sleep(30)
+    expect(instances).toHaveLength(1)
+  })
+
+  it('skips a re-point superseded by a change back to the bound workspace', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+
+    // A change to /workspace2 enqueues a re-point, then a change back to the
+    // currently-bound /workspace supersedes it before the re-point runs.
+    ctx.sessions.create(SessionId('other'), { meta: { cwd: '/workspace2' } })
+    ctx.sessions.create(SessionId('back'), { meta: { cwd: '/workspace' } })
+    await sleep(30)
+    expect(instances).toHaveLength(2)
+    expect(stdioTransportOptions).toHaveLength(2)
+  })
+
+  it('survives a rejecting close during a workspace re-point', async () => {
+    await ctx.plugin(SessionStore)
+    await apply(ctx, stdioConfigWithWorkspace())
+    await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+    // The re-point closes the old child; a rejecting close (after its onclose
+    // already fired) must not abort the swap.
+    mockClose.mockImplementationOnce(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return Promise.reject(new Error('already closed'))
+    })
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    await vi.waitFor(() => { expect(instances).toHaveLength(2) })
+    expect(stdioTransportOptions[1]?.cwd).toBe('/workspace')
+  })
+
+  it('stops a re-point when the previous server never reports that it closed', async () => {
+    vi.useFakeTimers()
+    try {
+      await ctx.plugin(SessionStore)
+      const { errors } = captureLogs(ctx)
+      await apply(ctx, stdioConfigWithWorkspace())
+      await vi.waitFor(() => { expect(ctx.tools.get('mcp__srv__remote')).toBeDefined() })
+
+      // The re-point closes the old child but it never fires onclose.
+      mockClose.mockResolvedValue(undefined)
+      ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+      await vi.advanceTimersByTimeAsync(5_000)
+      expect(instances).toHaveLength(1)
+      expect(errors.some(line => line.includes('re-point stopped to avoid overlapping server processes'))).toBe(true)
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it('dispose during a re-point close does not spawn a new child', async () => {
+    await ctx.plugin(SessionStore)
+    const gate: PromiseWithResolvers<void> = Promise.withResolvers()
+    mockClose.mockImplementation(function (this: { onclose?: () => void }) {
+      this.onclose?.()
+      return gate.promise
+    })
+    const handle = startConnection(ctx, stdioConfigWithWorkspace(), resolveReconnectPolicy(undefined, 'reconnect'))
+    await handle.ready
+    await vi.waitFor(() => { expect(instances).toHaveLength(1) })
+
+    ctx.sessions.create(SessionId('ws'), { meta: { cwd: '/workspace' } })
+    // Let the re-point closure start and await the gated close, then dispose.
+    await sleep(10)
+    const disposing = handle.dispose()
+    gate.resolve()
+    await disposing
+    await sleep(10)
+    expect(instances).toHaveLength(1)
   })
 })
 

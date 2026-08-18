@@ -26,16 +26,18 @@ function buildChildEnv(extra: Record<string, string>): Record<string, string> {
  * Create an MCP transport from the resolved plugin config.
  *
  * @param config - Resolved plugin config discriminated on `transport`.
+ * @param cwdOverride - Spawn cwd that takes precedence over `config.cwd`; used
+ *   by the session-workspace binding to point the child at the active workspace.
  * @returns A connected-ready MCP Transport (stdio or Streamable HTTP).
  */
-export function createTransport(config: Config): Transport {
+export function createTransport(config: Config, cwdOverride?: string): Transport {
   switch (config.transport) {
     case 'stdio':
       return new StdioClientTransport({
         command: config.command,
         args: config.args,
         env: buildChildEnv(config.env),
-        cwd: config.cwd,
+        cwd: cwdOverride ?? config.cwd,
       })
     case 'streamable-http':
       // The MCP SDK's StreamableHTTPClientTransport has optional callback

@@ -40,7 +40,8 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 | `command` | stdio | 是 | 要 spawn 的可执行文件 |
 | `args` | stdio | 否 | 传给命令的参数 |
 | `env` | stdio | 否 | 合并到已清理环境中的额外环境变量 |
-| `cwd` | stdio | 否 | 子进程工作目录 |
+| `cwd` | stdio | 否 | 子进程工作目录；为空时使用 Host 的工作目录 |
+| `useSessionWorkspace` | stdio | 否 | 改用当前打开的工作区作为 spawn 目录（而非 `cwd`），工作区变化时重新 spawn（默认 `false`） |
 | `url` | http | 是 | MCP 服务器 URL |
 | `headers` | http | 否 | 额外标头（例如认证 token） |
 | `toolCallTimeoutMs` | 两者 | 否 | 每次 `callTool` 调用的超时（默认 60000） |
@@ -69,12 +70,14 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 - 断开／崩溃时：supervisor 以指数退避（`reconnect.initialDelayMs` 逐次翻倍，上限 `reconnect.maxDelayMs`）重启原始服务器配置，成功后重新执行发现——恢复的世代会替换前一个，因此工具既不会重复也不会泄漏。中断期间最后一个正常世代保持注册；针对它的调用在恢复前会失败。
 - 重连按中断预算控制：连续失败达到 `reconnect.maxAttempts` 次后，该服务器的工具会被注销，重连停止，直到 HMR 重载或重启 Host。连接存活超过 `maxDelayMs` 会重置预算，因此偶尔崩溃的服务器可以无限恢复，而崩溃循环的服务器——即使短暂连接成功——仍会耗尽上限而非永远重启。
 - 重连状态在日志中对用户可见：reconnecting（warn，含尝试次数和延迟）、recovered（info）、最终失败和 disabled-loss（error）。dispose（资源释放）会取消任何待执行的重连。设置 `reconnect.enabled: false` 时，连接丢失后工具保持注册但调用失败，直到重载——即手动恢复行为。
+- 设置 `useSessionWorkspace: true` 时，stdio 子进程会在当前打开的工作区（最近打开的会话的 cwd）中 spawn，而非 `cwd`（尚无会话时回退到 `cwd`／Host 工作目录）。工作区变化时，服务器会以新的 cwd 重新 spawn（记录日志，不计入重连预算）。适用于从进程 cwd 派生搜索根（例如文件索引器）的服务器；避免用于长驻的 GUI 桥接服务，否则每次工作区切换都会重启它。未挂载会话服务的部署会一直使用配置的 `cwd`。
 
 ## 消费的服务
 
 | 服务 | 用途 |
 |---|---|
 | `ctx.tools` | 注册／注销 MCP 工具 |
+| `ctx.sessions`（可选） | 为 `useSessionWorkspace` 跟踪当前打开的工作区；缺失时子进程回退到 `cwd` |
 
 ## 模型体验
 
@@ -109,6 +112,7 @@ MCP 客户端桥接插件：连接外部 [Model Context Protocol](https://modelc
 ## 已知限制与暂缓事项
 
 - **只桥接 MCP 的工具能力**：资源和提示词没有 harness 消费接口，暂缓实现。
+- **工作区重新定位跟随会话创建，而非浏览器标签页**：`useSessionWorkspace` 跟随最近打开的会话；在没有新建会话的情况下，于不同工作区的两个已打开会话之间切换不会对子进程重新定位。
 - **启动超时继承自 MCP SDK**：DSH 尚未公开连接／发现超时。每次 initialize 请求或分页 `tools/list` 请求都使用 SDK 默认的 60 秒，因此在初始同步完成期间，无响应的 server 或 cursor chain 可能同时延迟激活与 teardown。
 - **重连在传输关闭时触发**：崩溃的 stdio 子进程会触发重连；Streamable HTTP 失败通过每次请求以及 SDK 传输自身的 SSE（Server-Sent Events）流恢复机制暴露，因此不可达的 HTTP 服务器会按调用重试，而非由 supervisor 重新 spawn。
 - **Native 非文本渲染有损**：图片、音频与资源载荷在模型上下文中会变成占位符，即使执行局部的规范值保留了其 JSON 块。更丰富的 Native 多媒体投影暂缓实现。
