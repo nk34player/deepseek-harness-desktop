@@ -1,8 +1,11 @@
 /**
  * Track the harness's "currently-open workspace": the cwd of the most recently
- * entered live, non-subagent session that carries one. mcp-client uses this
- * value to spawn stdio servers inside the user's active project folder when the
- * stdio config sets `useSessionWorkspace`.
+ * entered or activated live, non-subagent session that carries one. A plain
+ * creation arrives as `session/created`; a browser tab switch between
+ * already-open sessions arrives as `session/activated` and is treated the same
+ * way, so the server follows the tab the user is actually viewing. mcp-client
+ * uses this value to spawn stdio servers inside the user's active project folder
+ * when the stdio config sets `useSessionWorkspace`.
  *
  * @module
  */
@@ -46,6 +49,7 @@ export class SessionWorkspaceTracker {
   private best: TrackedEntry | undefined
   private readonly offCreated: () => void
   private readonly offDisposed: () => void
+  private readonly offActivated: () => void
 
   /**
    * The currently-open workspace cwd, or `undefined` when no eligible session
@@ -75,12 +79,23 @@ export class SessionWorkspaceTracker {
     this.offDisposed = ctx.on('session/disposed', (session) => {
       this.leave(session.id)
     }, { global: true })
+
+    // A browser tab switch activates a session without creating one; treating
+    // the activated session as the current workspace is what re-points the
+    // server when the user views an already-open session. `enter` bumps the
+    // monotonic seq, so the activated session becomes the most recent.
+    this.offActivated = ctx.on('session/activated', (session) => {
+      const cwd = eligibleCwd(session)
+      if (cwd === undefined) return
+      this.enter(session.id, cwd, true)
+    }, { global: true })
   }
 
-  /** Unsubscribe both session listeners. */
+  /** Unsubscribe all session listeners. */
   dispose(): void {
     this.offCreated()
     this.offDisposed()
+    this.offActivated()
   }
 
   private enter(id: SessionId, cwd: string, notify: boolean): void {

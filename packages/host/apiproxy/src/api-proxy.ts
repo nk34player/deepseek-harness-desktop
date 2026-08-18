@@ -2631,6 +2631,19 @@ export function createApiProxy(ctx: Context, defaults: ApiProxyDefaults): ApiPro
         agent.cancel({ kind: 'user' }, { keepInbox: true })
         return Promise.resolve(ok(request, { accepted: true as const }))
       },
+
+      activate(request) {
+        const { sessionId } = request.payload
+        // A focus hint, not an operation: announce the currently-viewed live
+        // session so host plugins (mcp-client) can follow the active tab's
+        // workspace. An unknown or null id is a benign no-op — the tracker
+        // keeps its last state.
+        if (sessionId !== null) {
+          const session = ctx.sessions.get(sessionId)
+          if (session !== undefined) ctx.emit('session/activated', session)
+        }
+        return Promise.resolve(ok(request, { accepted: true as const }))
+      },
     },
 
     subagents: {

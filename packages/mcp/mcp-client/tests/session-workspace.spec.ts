@@ -140,6 +140,55 @@ describe('SessionWorkspaceTracker', () => {
     tracker.dispose()
   })
 
+  it('re-points to an already-open session when it is activated', async () => {
+    const ctx = await mountStore()
+    const changed: (string | undefined)[] = []
+    const tracker = new SessionWorkspaceTracker(ctx, (cwd) => { changed.push(cwd) })
+    ctx.sessions.create(SessionId('a'), { meta: { cwd: '/a' } })
+    ctx.sessions.create(SessionId('b'), { meta: { cwd: '/b' } })
+    expect(tracker.current).toBe('/b')
+    changed.length = 0
+    // A tab switch activates the older, still-live session without creating one.
+    const sessionA = ctx.sessions.get(SessionId('a'))
+    if (sessionA === undefined) throw new Error('session a must be live')
+    ctx.emit('session/activated', sessionA)
+    expect(tracker.current).toBe('/a')
+    expect(changed).toEqual(['/a'])
+    tracker.dispose()
+  })
+
+  it('ignores an activated subagent session', async () => {
+    const ctx = await mountStore()
+    const changed: (string | undefined)[] = []
+    const tracker = new SessionWorkspaceTracker(ctx, (cwd) => { changed.push(cwd) })
+    ctx.sessions.create(SessionId('main'), { meta: { cwd: '/main' } })
+    expect(tracker.current).toBe('/main')
+    changed.length = 0
+    ctx.sessions.create(SessionId('sub'), { meta: { cwd: '/hidden', origin: 'subagent' } })
+    const sub = ctx.sessions.get(SessionId('sub'))
+    if (sub === undefined) throw new Error('subagent session must be live')
+    ctx.emit('session/activated', sub)
+    expect(tracker.current).toBe('/main')
+    expect(changed).toEqual([])
+    tracker.dispose()
+  })
+
+  it('dispose() unsubscribes the activated-session listener', async () => {
+    const ctx = await mountStore()
+    const changed: (string | undefined)[] = []
+    const tracker = new SessionWorkspaceTracker(ctx, (cwd) => { changed.push(cwd) })
+    ctx.sessions.create(SessionId('live'), { meta: { cwd: '/live' } })
+    expect(tracker.current).toBe('/live')
+    changed.length = 0
+    tracker.dispose()
+    ctx.sessions.create(SessionId('other'), { meta: { cwd: '/other' } })
+    const other = ctx.sessions.get(SessionId('other'))
+    if (other === undefined) throw new Error('other session must be live')
+    ctx.emit('session/activated', other)
+    expect(tracker.current).toBe('/live')
+    expect(changed).toEqual([])
+  })
+
   it('dispose() unsubscribes both session listeners', async () => {
     const ctx = await mountStore()
     const changed: (string | undefined)[] = []

@@ -268,6 +268,8 @@ export class SessionRuntime implements ISessions {
   private watched: SessionId | undefined
   /** Removed-while-staged sessions whose teardown waits for the stage to move away. */
   private readonly deferredRemovals = new Set<SessionId>()
+  /** The active-session id last reported to the Host via `session.activate`; undefined = never reported. */
+  private lastReportedActive: SessionId | null | undefined = undefined
 
   /**
    * @param ctx - client root context (scope fibers mount under it).
@@ -277,7 +279,7 @@ export class SessionRuntime implements ISessions {
    */
   constructor(
     private readonly rootCtx: Context,
-    api: IApiClient,
+    private readonly api: IApiClient,
     remote: SessionRemotes,
     conversationRuntime?: ConversationRuntime,
   ) {
@@ -316,6 +318,7 @@ export class SessionRuntime implements ISessions {
     this.list.subscribe(() => {
       this.followCurrent()
       this.provideChannel.publishCurrent()
+      this.reportActiveSession()
     })
     this.provideChannel = new SessionProvideChannel({
       rebuildBundles: () => {
@@ -463,7 +466,25 @@ export class SessionRuntime implements ISessions {
 
   /** Rebuild the Session baseline and every opened window after connection. */
   handleConnected(): void {
+    // A new connection generation may have lost the Host-side active-session
+    // fact (host restart), so the next list projection re-reports the
+    // currently-viewed session instead of deduping against the previous one.
+    this.lastReportedActive = undefined
     this.manager.handleConnected()
+  }
+
+  /**
+   * Fire-and-forget the currently-viewed session id to the Host so host
+   * plugins (mcp-client) follow the active tab's workspace. Reports only on
+   * change; a failure is non-fatal — the next change or reconnect re-reports.
+   */
+  private reportActiveSession(): void {
+    const current = this.list.getSnapshot().current
+    if (current === this.lastReportedActive) return
+    this.lastReportedActive = current
+    // Fire-and-forget: a focus report is best-effort; a failure is swallowed
+    // because the next change or reconnect re-reports it.
+    void this.api.sessions.activate({ sessionId: current ?? null }).catch(() => {})
   }
 
   /** Drop generation-scoped live interaction state the moment a connection generation dies. */

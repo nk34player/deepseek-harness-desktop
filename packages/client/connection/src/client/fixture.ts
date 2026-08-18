@@ -2506,6 +2506,7 @@ function createFixtureWorld(options: FixtureOptions): FixtureWorld {
         }
         return ok(request, { accepted: true as const })
       },
+      activate: request => ok(request, { accepted: true as const }),
     },
     subagents: {
       list: request => ok(request, { entries: [], parentAvailable: true }),

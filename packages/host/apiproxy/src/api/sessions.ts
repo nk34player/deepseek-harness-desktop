@@ -370,4 +370,12 @@ export interface SessionsApi {
    */
   cancel(request: RpcRequest<{ sessionId: SessionId }>): Promise<RpcResponse<{ accepted: true }>>
 
+  /**
+   * Reports the session the user is currently viewing in the GUI, so host
+   * plugins (e.g. mcp-client) can follow the active tab's workspace. A
+   * fire-and-forget control signal: the Host emits `session/activated` for a
+   * resolvable live session and never rejects on an unknown or null id.
+   */
+  activate(request: RpcRequest<{ sessionId: SessionId | null }>): Promise<RpcResponse<{ accepted: true }>>
+
 }
