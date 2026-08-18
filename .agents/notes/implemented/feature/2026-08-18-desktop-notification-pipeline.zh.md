@@ -13,9 +13,12 @@ Status: implemented
 新增一条窄的渲染进程到主进程通知通道：
 
 - preload 桥接新增 `notify({ title, body })`，由外壳中的 `dsh:notification-show` IPC 处理器支撑。处理器在信任边界校验载荷（格式错误的载荷被丢弃，绝不抛出），遵循通知偏好与 `Notification.isSupported()`，并使用应用图标显示 Electron `Notification`。
-- Web GUI 有两个触发点（都仅限桌面，无桥接时静默无操作）：
-  - 会话管理器的 `approval/requested` 帧处理弹出「`<toolName>`」需要审批——每个新审批只弹一次；重放仍待处理的请求是幂等的，不得再次提醒。
-  - ui-update 状态源在进入 `available` 阶段时弹出发现新版本 `<version>`（相同版本的重复推送不会再次提醒）。
+- Web GUI 有五个触发点（都仅限桌面，无桥接时静默无操作）：
+  - 会话管理器的 `approval/requested` 帧处理弹出 `Approval needed: <tool>`——每个新审批只弹一次；重放仍待处理的请求是幂等的，不得再次提醒。
+  - 会话管理器的 `question/requested` 帧处理弹出 `Question asked`，同样在重放时去重。
+  - 会话管理器的完成对账在非选中会话的 running→idle 边沿弹出 `Session finished` / `Subagent finished`（按来源标注，有会话标题时带上标题）。
+  - 会话管理器的 `host/agent-error` 处理在非选中会话出错时弹出 `Session error: <message>`。
+  - ui-update 状态源在进入 `available` 阶段时弹出 `Update <version> available`（相同版本的重复推送不会再次提醒）。
 
 通知文案为英文。运行时只保留它调用的最小桥接面（`notify?: { title, body }`），外壳会重新校验，因此对象层绝不信任渲染进程的载荷。
 

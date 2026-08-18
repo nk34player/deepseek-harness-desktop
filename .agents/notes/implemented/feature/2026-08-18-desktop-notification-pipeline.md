@@ -13,9 +13,12 @@ The desktop shell raised native notifications only for harness supervisor events
 Add a narrow renderer-to-main notification channel:
 
 - The preload bridge gains `notify({ title, body })`, backed by a `dsh:notification-show` IPC handler in the shell. The handler validates the payload at the trust boundary (a malformed payload is dropped, never thrown), honors the notifications preference and `Notification.isSupported()`, and shows an Electron `Notification` with the app icon.
-- Two triggers raise it from the Web GUI (both desktop-only and silent no-ops without the bridge):
-  - The session manager's `approval/requested` frame handling raises 「`<toolName>`」需要审批 — once per NEW approval; a replayed still-pending request is idempotent and must not re-alert.
-  - The ui-update status source raises 发现新版本 `<version>` on the transition into the `available` phase (same-version re-pushes do not re-alert).
+- Five triggers raise it from the Web GUI (all desktop-only and silent no-ops without the bridge):
+  - The session manager's `approval/requested` frame handling raises `Approval needed: <tool>` — once per NEW approval; a replayed still-pending request is idempotent and must not re-alert.
+  - The session manager's `question/requested` frame handling raises `Question asked`, also deduplicated on replay.
+  - The session manager's completion reconciliation raises `Session finished` / `Subagent finished` on the running→idle edge of a non-selected session (labeled by origin, with the session title when available).
+  - The session manager's `host/agent-error` handling raises `Session error: <message>` for an error in a non-selected session.
+  - The ui-update status source raises `Update <version> available` on the transition into the `available` phase (same-version re-pushes do not re-alert).
 
 Notification copy is English. The runtime keeps only the minimal bridge surface it calls (`notify?: { title, body }`), and the shell revalidates, so the object layer never trusts the renderer payload.
 

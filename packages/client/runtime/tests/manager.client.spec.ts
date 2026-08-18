@@ -3,7 +3,7 @@
  * frame routing, and the pending-frame buffer for uninstantiated sessions.
  */
 
-import { describe, expect, it, vi } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import type { SessionId } from '@deepseek-ai/dsh-api-remotes/client'
 import { SessionManager } from '../src/client/sessions/manager.ts'
 import { FakeApiClient, deferred, err, fakeRemote, ok } from './fake-api.client.ts'
@@ -1206,5 +1206,64 @@ describe('background-job mirror', () => {
     // The notifier batches on a microtask; the frame itself is already applied.
     await Promise.resolve()
     expect(seen).toHaveBeenCalled()
+  })
+})
+
+describe('desktop notifications', () => {
+  afterEach(() => {
+    delete (globalThis as Record<string, unknown>).window
+  })
+
+  it('raises a session-finished notification on the running→idle edge of a non-selected session', async () => {
+    const notify = vi.fn()
+    ;(globalThis as Record<string, unknown>).window = { dshDesktop: { notify } }
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api, fakeRemote())
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1, { running: true })] as never[] }))
+    await manager.refreshList()
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1, { running: false })] as never[] }))
+    await manager.refreshList()
+    expect(notify).toHaveBeenCalledTimes(1)
+    expect(notify).toHaveBeenCalledWith({ title: 'DeepSeek Harness', body: 'Session finished' })
+  })
+
+  it('labels subagent completions distinctly', async () => {
+    const notify = vi.fn()
+    ;(globalThis as Record<string, unknown>).window = { dshDesktop: { notify } }
+    const api = new FakeApiClient()
+    const manager = new SessionManager(api, fakeRemote())
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1, { running: true, origin: 'subagent' })] as never[] }))
+    await manager.refreshList()
+    api.onList = () => Promise.resolve(ok({ items: [summary(S1, { running: false, origin: 'subagent' })] as never[] }))
+    await manager.refreshList()
+    expect(notify).toHaveBeenCalledWith({ title: 'DeepSeek Harness', body: 'Subagent finished' })
+  })
+
+  it('raises a session-error notification for an agent error in a non-selected session', () => {
+    const notify = vi.fn()
+    ;(globalThis as Record<string, unknown>).window = { dshDesktop: { notify } }
+    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
+    manager.handleHostEnvelope({
+      rpcId: 'h1' as never,
+      payload: { type: 'host/agent-error', sessionId: S1, message: 'boom' },
+    })
+    expect(notify).toHaveBeenCalledWith({ title: 'DeepSeek Harness', body: 'Session error: boom' })
+  })
+
+  it('raises a question notification once per new question', () => {
+    const notify = vi.fn()
+    ;(globalThis as Record<string, unknown>).window = { dshDesktop: { notify } }
+    const manager = new SessionManager(new FakeApiClient(), fakeRemote())
+    manager.handleMuxEnvelope({
+      rpcId: 'q1' as never,
+      payload: { type: 'question/requested', sessionId: S1, questions: [] },
+    })
+    expect(notify).toHaveBeenCalledTimes(1)
+    // A replayed still-pending question must stay silent.
+    manager.handleMuxEnvelope({
+      rpcId: 'q1' as never,
+      payload: { type: 'question/requested', sessionId: S1, questions: [] },
+    })
+    expect(notify).toHaveBeenCalledTimes(1)
   })
 })

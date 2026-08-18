@@ -762,11 +762,15 @@ export class SessionManager {
     } else if (frame.type === 'approval/resolved') {
       this.resolvePending(frame.sessionId, `a:${frame.approvalId}`)
     } else if (frame.type === 'question/requested') {
+      const key = `q:${envelope.rpcId}`
+      // Notify only for a NEW question; replayed still-pending requests stay silent.
+      const isNew = this.pendingInteractions.get(frame.sessionId)?.has(key) !== true
       this.trackPending(
         frame.sessionId,
-        `q:${envelope.rpcId}`,
+        key,
         questionInteractionStatus(frame.questions),
       )
+      if (isNew) raiseDesktopNotification('Question asked')
     } else if (frame.type === 'question/resolved') {
       this.resolvePending(frame.sessionId, `q:${frame.questionRpcId}`)
     }
@@ -890,6 +894,8 @@ export class SessionManager {
       }
       case 'host/agent-error': {
         this.sessions.get(frame.sessionId)?.handleAgentError(frame.message)
+        // Alert when an error lands in a session the user is not viewing.
+        if (frame.sessionId !== this.selected) raiseDesktopNotification(`Session error: ${frame.message}`)
         return // not reflected in the list
       }
       default:
@@ -1025,7 +1031,16 @@ export class SessionManager {
         continue
       }
       if (prev && !s.running) {
-        if (s.sessionId !== this.selected) this.completedNotifications.add(s.sessionId)
+        if (s.sessionId !== this.selected) {
+          if (!this.completedNotifications.has(s.sessionId)) {
+            // New completion of a session the user is not viewing: raise a
+            // desktop notification (subagent completions are labeled as such).
+            const title = this.projectionStores.get(s.sessionId)?.get('title')
+            const label = s.origin === 'subagent' ? 'Subagent finished' : 'Session finished'
+            raiseDesktopNotification(title !== undefined && title !== '' ? `${label}: ${title}` : label)
+          }
+          this.completedNotifications.add(s.sessionId)
+        }
       } else if (s.running) {
         this.completedNotifications.delete(s.sessionId)
       }
