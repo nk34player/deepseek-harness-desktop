@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   createNotificationThrottle,
+  parseRendererNotification,
   restartNotificationFor,
 } from '../src/notifications.ts'
 
@@ -42,5 +43,28 @@ describe('desktop notification throttle', () => {
     const throttle = createNotificationThrottle(60_000)
     throttle.allow('restart', 1_000)
     expect(throttle.allow('recovered', 2_000)).toBe(true)
+  })
+})
+
+describe('renderer notification parsing (IPC trust boundary)', () => {
+  it('accepts a { title, body } payload', () => {
+    expect(parseRendererNotification({ title: '标题', body: '内容' }))
+      .toEqual({ title: '标题', body: '内容' })
+  })
+
+  it('rejects non-object payloads', () => {
+    expect(parseRendererNotification(undefined)).toBeUndefined()
+    expect(parseRendererNotification(null)).toBeUndefined()
+    expect(parseRendererNotification('x')).toBeUndefined()
+    expect(parseRendererNotification(42)).toBeUndefined()
+  })
+
+  it('rejects missing or empty title/body', () => {
+    expect(parseRendererNotification({})).toBeUndefined()
+    expect(parseRendererNotification({ title: '标题' })).toBeUndefined()
+    expect(parseRendererNotification({ body: '内容' })).toBeUndefined()
+    expect(parseRendererNotification({ title: '', body: '内容' })).toBeUndefined()
+    expect(parseRendererNotification({ title: '标题', body: '' })).toBeUndefined()
+    expect(parseRendererNotification({ title: 1, body: '内容' })).toBeUndefined()
   })
 })

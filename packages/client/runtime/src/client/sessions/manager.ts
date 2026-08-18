@@ -23,6 +23,23 @@ import { ProjectionValueStore } from './projection-store.ts'
 import { Session } from './session.ts'
 import type { SessionRemotes } from './remotes.ts'
 
+/** Minimal desktop-shell bridge surface the runtime may raise notifications through. */
+interface DesktopNotifyBridge {
+  notify?(notification: { title: string; body: string }): void
+}
+
+/**
+ * Raise a native notification through the desktop shell's preload bridge when
+ * it is present (the packaged app); a no-op in a plain browser or non-browser
+ * test environment. The shell validates the payload at the IPC boundary.
+ * @param body - the notification body (product copy is Chinese).
+ */
+function raiseDesktopNotification(body: string): void {
+  if (typeof window === 'undefined') return
+  const bridge = (window as unknown as { dshDesktop?: DesktopNotifyBridge }).dshDesktop
+  bridge?.notify?.({ title: 'DeepSeek Harness', body })
+}
+
 /**
  * List arrival lifecycle, orthogonal to the pull-activity `state` axis:
  * `pending` (no successful pull yet — an empty items array means "nothing
@@ -736,7 +753,12 @@ export class SessionManager {
     // List-level pending-interaction status (the sidebar amber dot): tracked
     // for every session, instantiated or not; stable keys make replays idempotent.
     if (frame.type === 'approval/requested') {
-      this.trackPending(frame.sessionId, `a:${frame.approvalId}`, 'approval')
+      const key = `a:${frame.approvalId}`
+      // Notify only for a NEW approval: replays of a still-pending request are
+      // idempotent and must not re-alert the user.
+      const isNew = this.pendingInteractions.get(frame.sessionId)?.has(key) !== true
+      this.trackPending(frame.sessionId, key, 'approval')
+      if (isNew) raiseDesktopNotification(`「${frame.toolName}」需要审批`)
     } else if (frame.type === 'approval/resolved') {
       this.resolvePending(frame.sessionId, `a:${frame.approvalId}`)
     } else if (frame.type === 'question/requested') {

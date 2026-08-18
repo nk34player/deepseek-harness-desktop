@@ -9,6 +9,20 @@ export interface NotificationSink {
   show(notification: ShellNotification): void
 }
 
+/**
+ * Validate a renderer-raised notification payload (`{ title, body }` strings).
+ * IPC is a trust boundary, so a malformed payload is dropped rather than shown.
+ * @param payload - the raw value received from the renderer over IPC.
+ * @returns the validated notification, or undefined when malformed.
+ */
+export function parseRendererNotification(payload: unknown): ShellNotification | undefined {
+  if (typeof payload !== 'object' || payload === null) return undefined
+  const { title, body } = payload as Record<string, unknown>
+  if (typeof title !== 'string' || title.length === 0) return undefined
+  if (typeof body !== 'string' || body.length === 0) return undefined
+  return { title, body }
+}
+
 export const RESTART_NOTIFICATION: ShellNotification = {
   title: 'DeepSeek Harness 意外退出',
   body: '正在自动重启，窗口稍后恢复。',

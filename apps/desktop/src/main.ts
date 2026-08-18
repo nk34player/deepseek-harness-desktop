@@ -22,6 +22,7 @@ import { createDesktopLifecycle, type DesktopLifecycle } from './window-lifecycl
 import { HIDDEN_LAUNCH_ARG, shouldStartHidden, type LoginItemController } from './autolaunch.ts'
 import {
   createNotificationThrottle,
+  parseRendererNotification,
   RECOVERED_KEY,
   RECOVERED_NOTIFICATION,
   restartNotificationFor,
@@ -447,6 +448,17 @@ function registerWindowControlIpc(): void {
   ipcMain.handle('dsh:notifications-set', (_event, enabled: unknown): NotificationsPrefState => (
     writeNotificationsEnabled(enabled === true)
   ))
+  // Renderer-raised native notification (the Web GUI surfaces harness events —
+  // approval requests, update availability — as OS notifications). Honors the
+  // notifications preference and the platform's Notification support; a
+  // malformed payload is dropped at the trust boundary.
+  ipcMain.handle('dsh:notification-show', (_event, notification: unknown) => {
+    if (!notificationsEnabled || !Notification.isSupported()) return
+    const parsed = parseRendererNotification(notification)
+    if (parsed === undefined) return
+    const icon = resolveAppIcon()
+    new Notification({ title: parsed.title, body: parsed.body, ...(icon === undefined ? {} : { icon }) }).show()
+  })
   ipcMain.handle('dsh:close-behavior-get', (): CloseBehaviorState => readCloseBehaviorState())
   ipcMain.handle('dsh:close-behavior-set', (_event, behavior: unknown): CloseBehaviorState => (
     writeCloseBehavior(behavior)
